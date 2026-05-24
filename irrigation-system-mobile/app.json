@@ -23,6 +23,14 @@
     "extra": {
       "eas": {
         "projectId": "6c14246c-ea28-498d-9c33-c3a9bba4b5d0"
+      },
+      "irrigation": {
+        "region": "eu-central-1",
+        "userPoolId": "eu-central-1_i66pYQHZR",
+        "userPoolClientId": "5prg7oeq68ptkeqg3lc6qs50mq",
+        "cloudBaseUrl": "https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev",
+        "defaultDeviceId": "irrigation-dev-001",
+        "defaultServerIp": "192.168.100.161"
       }
     }
   }

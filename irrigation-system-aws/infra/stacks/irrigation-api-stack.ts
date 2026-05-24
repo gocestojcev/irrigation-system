@@ -31,6 +31,8 @@ export class IrrigationApiStack extends Stack {
     super(scope, id, props);
 
     Tags.of(this).add('name', 'irrigation');
+    Tags.of(this).add('owner', 'irrigation-system');
+    Tags.of(this).add('stage', props.stage);
 
     const accessTable = new dynamodb.Table(this, 'DeviceUserAccessTable', {
       tableName: `device_user_access_${props.stage}`,
@@ -62,6 +64,18 @@ export class IrrigationApiStack extends Stack {
       timeToLiveAttribute: 'ttl',
     });
 
+    const logsTable = new dynamodb.Table(this, 'DeviceLogsTable', {
+      tableName: `device_logs_${props.stage}`,
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: props.stage === 'prod' ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true,
+      },
+      timeToLiveAttribute: 'ttl',
+    });
+
     const defaultFnProps: Omit<lambdaNode.NodejsFunctionProps, 'entry'> = {
       runtime: lambda.Runtime.NODEJS_20_X,
       memorySize: 256,
@@ -73,6 +87,7 @@ export class IrrigationApiStack extends Stack {
       environment: {
         ACCESS_TABLE_NAME: accessTable.tableName,
         COMMANDS_TABLE_NAME: commandsTable.tableName,
+        LOGS_TABLE_NAME: logsTable.tableName,
         COMMAND_TIMEOUT_SECONDS: '120',
         STAGE: props.stage,
       },
@@ -114,7 +129,12 @@ export class IrrigationApiStack extends Stack {
     const postLogsClearFn = createHandler('PostLogsClear', 'lambdas/handlers/post-logs-clear.ts');
     const getCommandStatusFn = createHandler('GetCommandStatus', 'lambdas/handlers/get-command-status.ts');
     const ingestCommandResultFn = createHandler('IngestCommandResult', 'lambdas/handlers/ingest-command-result.ts');
+    const ingestLogEventFn = createHandler('IngestLogEvent', 'lambdas/handlers/ingest-log-event.ts');
     const timeoutCommandsFn = createHandler('TimeoutCommands', 'lambdas/handlers/timeout-commands.ts');
+
+    logsTable.grantReadData(getLogsFn);
+    logsTable.grantWriteData(ingestLogEventFn);
+    logsTable.grantReadWriteData(postLogsClearFn);
 
     commandsTable.grantWriteData(postLineFn);
     commandsTable.grantWriteData(postScheduleFn);
@@ -193,6 +213,28 @@ export class IrrigationApiStack extends Stack {
     });
 
     ingestCommandResultFn.addPermission('AllowIotInvokeIngestCommandResult', {
+      principal: new iam.ServicePrincipal('iot.amazonaws.com'),
+      action: 'lambda:InvokeFunction',
+    });
+
+    const logEventRuleName = `irrigation_log_event_${props.stage}`;
+    new iot.CfnTopicRule(this, 'LogEventTopicRule', {
+      ruleName: logEventRuleName,
+      topicRulePayload: {
+        sql: "SELECT topic(3) as deviceId, Epoch, Time, Line, Event, Source, DurationSec, DurationMin FROM 'irrigation/devices/+/logs'",
+        actions: [
+          {
+            lambda: {
+              functionArn: ingestLogEventFn.functionArn,
+            },
+          },
+        ],
+        ruleDisabled: false,
+        awsIotSqlVersion: '2016-03-23',
+      },
+    });
+
+    ingestLogEventFn.addPermission('AllowIotInvokeIngestLogEvent', {
       principal: new iam.ServicePrincipal('iot.amazonaws.com'),
       action: 'lambda:InvokeFunction',
     });

@@ -185,7 +185,7 @@ components:
       required: true
       schema:
         type: integer
-        enum: [1, 2]
+        enum: [1, 2, 3]
 
   responses:
     BadRequest:
@@ -241,7 +241,7 @@ components:
 
     StatusResponse:
       type: object
-      required: [Epoch, Time, Line1, Line2]
+      required: [Epoch, Time, Line1, Line2, Line3]
       properties:
         Epoch:
           type: integer
@@ -252,6 +252,8 @@ components:
         Line1:
           $ref: '#/components/schemas/StatusLine'
         Line2:
+          $ref: '#/components/schemas/StatusLine'
+        Line3:
           $ref: '#/components/schemas/StatusLine'
 
     ScheduleResponse:
@@ -363,7 +365,7 @@ components:
           type: string
         Line:
           type: integer
-          enum: [1, 2]
+          enum: [1, 2, 3]
         Event:
           type: string
           enum: [Started, Stopped]

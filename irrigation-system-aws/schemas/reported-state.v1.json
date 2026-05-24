@@ -18,7 +18,7 @@
     "status": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["Epoch", "Time", "Line1", "Line2"],
+      "required": ["Epoch", "Time", "Line1", "Line2", "Line3"],
       "properties": {
         "Epoch": { "type": "integer", "minimum": 0 },
         "Time": {
@@ -26,16 +26,18 @@
           "pattern": "^([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
         },
         "Line1": { "$ref": "#/$defs/lineStatus" },
-        "Line2": { "$ref": "#/$defs/lineStatus" }
+        "Line2": { "$ref": "#/$defs/lineStatus" },
+        "Line3": { "$ref": "#/$defs/lineStatus" }
       }
     },
     "schedule": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["1", "2"],
+      "required": ["1", "2", "3"],
       "properties": {
         "1": { "$ref": "#/$defs/lineSchedule" },
-        "2": { "$ref": "#/$defs/lineSchedule" }
+        "2": { "$ref": "#/$defs/lineSchedule" },
+        "3": { "$ref": "#/$defs/lineSchedule" }
       }
     },
     "lastCommand": {

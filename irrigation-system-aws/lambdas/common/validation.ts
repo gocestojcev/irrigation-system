@@ -34,11 +34,18 @@ export type StatusLineBody = {
   Source: 'manual' | 'scheduled' | 'system' | 'off' | 'unknown';
 };
 
+export const VALID_LINE_IDS = ['1', '2', '3'] as const;
+export type ValidLineId = (typeof VALID_LINE_IDS)[number];
+
+export const isValidLineId = (lineId: string): lineId is ValidLineId =>
+  (VALID_LINE_IDS as readonly string[]).includes(lineId);
+
 export type StatusBody = {
   Epoch: number;
   Time: string;
   Line1: StatusLineBody;
   Line2: StatusLineBody;
+  Line3: StatusLineBody;
 };
 
 export type ScheduleBody = {
@@ -49,6 +56,17 @@ export type ScheduleBody = {
   IntervalSec: number;
   DaysMask: number;
   Days?: Array<'Sun' | 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'>;
+};
+
+export type LogEventIngestBody = {
+  deviceId: string;
+  Epoch: number;
+  Time: string;
+  Line: 1 | 2 | 3;
+  Event: 'Started' | 'Stopped';
+  Source: 'manual' | 'scheduled' | 'system';
+  DurationSec: number;
+  DurationMin: number;
 };
 
 const hhmmssPattern = '^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$';
@@ -104,31 +122,26 @@ const lineStateSchema: JSONSchemaType<LineStateBody> = {
   },
 };
 
+const statusLineSchema = {
+  type: 'object' as const,
+  additionalProperties: false,
+  required: ['Value', 'Source'] as const,
+  properties: {
+    Value: { type: 'string' as const, enum: ['on', 'off'] as const },
+    Source: { type: 'string' as const, enum: ['manual', 'scheduled', 'system', 'off', 'unknown'] as const },
+  },
+};
+
 const statusSchema: JSONSchemaType<StatusBody> = {
   type: 'object',
   additionalProperties: false,
-  required: ['Epoch', 'Time', 'Line1', 'Line2'],
+  required: ['Epoch', 'Time', 'Line1', 'Line2', 'Line3'],
   properties: {
     Epoch: { type: 'integer', minimum: 0 },
     Time: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$' },
-    Line1: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['Value', 'Source'],
-      properties: {
-        Value: { type: 'string', enum: ['on', 'off'] },
-        Source: { type: 'string', enum: ['manual', 'scheduled', 'system', 'off', 'unknown'] },
-      },
-    },
-    Line2: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['Value', 'Source'],
-      properties: {
-        Value: { type: 'string', enum: ['on', 'off'] },
-        Source: { type: 'string', enum: ['manual', 'scheduled', 'system', 'off', 'unknown'] },
-      },
-    },
+    Line1: statusLineSchema,
+    Line2: statusLineSchema,
+    Line3: statusLineSchema,
   },
 };
 
@@ -157,6 +170,24 @@ const validateCommandResultIngest = ajv.compile(commandResultIngestSchema);
 const validateLineState = ajv.compile(lineStateSchema);
 const validateStatus = ajv.compile(statusSchema);
 const validateSchedule = ajv.compile(scheduleSchema);
+
+const logEventIngestSchema: JSONSchemaType<LogEventIngestBody> = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deviceId', 'Epoch', 'Time', 'Line', 'Event', 'Source', 'DurationSec', 'DurationMin'],
+  properties: {
+    deviceId: { type: 'string', minLength: 1, maxLength: 128 },
+    Epoch: { type: 'integer', minimum: 0 },
+    Time: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$' },
+    Line: { type: 'integer', enum: [1, 2, 3] },
+    Event: { type: 'string', enum: ['Started', 'Stopped'] },
+    Source: { type: 'string', enum: ['manual', 'scheduled', 'system'] },
+    DurationSec: { type: 'integer', minimum: 0, maximum: 86400 },
+    DurationMin: { type: 'integer', minimum: 0, maximum: 1440 },
+  },
+};
+
+const validateLogEventIngest = ajv.compile(logEventIngestSchema);
 
 export const parseJsonBody = <T>(body?: string | null): { ok: true; value: T } | { ok: false; error: string } => {
   try {
@@ -259,4 +290,14 @@ export const validateScheduleBody = (
   }
 
   return { ok: true, value: payload as ScheduleBody };
+};
+
+export const validateLogEventIngestBody = (
+  payload: unknown,
+): { ok: true; value: LogEventIngestBody } | { ok: false; message: string } => {
+  if (!validateLogEventIngest(payload)) {
+    return { ok: false, message: formatErrors(validateLogEventIngest.errors) };
+  }
+
+  return { ok: true, value: payload as LogEventIngestBody };
 };

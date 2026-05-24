@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, ScrollView, FlatList, Platform, Modal, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { parseLineIdsFromStatus } from './services/lineDiscovery';
 import { getLineDisplayName, getLineMeta } from './services/lineLabels';
 import { LineAvatar } from './components/LineAvatar';
+import { irrigationConfig } from './services/config';
+import { createIrrigationApi } from './services/irrigationApi';
+import { getApiMode, getCloudBaseUrl, getCloudUsername, getDeviceId, getServerIP, setApiMode as persistApiMode, setCloudBaseUrl as persistCloudBaseUrl, setDeviceId as persistDeviceId, setServerIP as persistServerIP } from './services/storage';
+import { isSignedIn as checkSignedIn, signIn as cognitoSignIn, signOut as cognitoSignOut } from './services/auth';
 
 export default function App() {
   const weekDays = [
@@ -17,7 +21,14 @@ export default function App() {
     { label: 'Sat', bit: 64 },
   ];
   const intervalHourOptions = [0, 1, 2, 4, 8, 12, 24];
-  const [serverIP, setServerIP] = useState('192.168.100.161');
+  const [serverIP, setServerIPState] = useState(irrigationConfig.defaultServerIp);
+  const [deviceId, setDeviceIdState] = useState(irrigationConfig.defaultDeviceId);
+  const [cloudBaseUrl, setCloudBaseUrlState] = useState(irrigationConfig.defaultCloudBaseUrl);
+  const [apiMode, setApiModeState] = useState('cloud');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState([]);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
@@ -39,6 +50,46 @@ export default function App() {
   const insets = useSafeAreaInsets();
 
   const baseURL = `http://${serverIP}`;
+  const api = useMemo(
+    () => createIrrigationApi({ apiMode, serverIP, deviceId, cloudBaseUrl }),
+    [apiMode, serverIP, deviceId, cloudBaseUrl],
+  );
+
+  const setServerIP = (value) => {
+    setServerIPState(value);
+    persistServerIP(value).catch(() => {});
+  };
+
+  const setDeviceId = (value) => {
+    setDeviceIdState(value);
+    persistDeviceId(value).catch(() => {});
+  };
+
+  const setCloudBaseUrl = (value) => {
+    const normalized = value.trim().replace(/\/+$/, '');
+    setCloudBaseUrlState(normalized);
+    persistCloudBaseUrl(normalized).catch(() => {});
+  };
+
+  useEffect(() => {
+    (async () => {
+      const [savedIp, savedDeviceId, savedCloudBaseUrl, savedMode, signedIn, savedUsername] = await Promise.all([
+        getServerIP(irrigationConfig.defaultServerIp),
+        getDeviceId(irrigationConfig.defaultDeviceId),
+        getCloudBaseUrl(irrigationConfig.defaultCloudBaseUrl),
+        getApiMode(),
+        checkSignedIn(),
+        getCloudUsername(),
+      ]);
+      setServerIPState(savedIp);
+      setDeviceIdState(savedDeviceId);
+      setCloudBaseUrlState(savedCloudBaseUrl);
+      setApiModeState(savedMode);
+      setIsAuthenticated(signedIn);
+      if (savedUsername) setAuthUsername(savedUsername);
+      setBootstrapped(true);
+    })();
+  }, []);
 
   const normalizeState = (value) => {
     if (typeof value === 'string') {
@@ -381,9 +432,9 @@ export default function App() {
 
     try {
       setSavingScheduleLine(lineId);
-      const response = await axios.post(`${baseURL}/schedule/${lineId}`, payload, { timeout: 3000 });
+      const response = await api.setSchedule(lineId, payload);
 
-      const updatedSchedule = scheduleFromApiToLocal({ line: lineId, ...response.data });
+      const updatedSchedule = scheduleFromApiToLocal({ line: lineId, ...response });
       setSchedule((prev) => {
         const previousItems = Array.isArray(prev) ? prev.filter((item) => item.line !== lineId) : [];
         return [...previousItems, updatedSchedule].sort((left, right) => left.line - right.line);
@@ -483,27 +534,27 @@ export default function App() {
       setLoading(true);
       setApiAvailable(true);
 
-      const statusRes = await axios.get(`${baseURL}/status`, { timeout: 5000 });
-      const lineIds = parseLineIdsFromStatus(statusRes.data);
+      const statusRes = await api.getStatus();
+      const lineIds = parseLineIdsFromStatus(statusRes);
       if (lineIds.length === 0) {
         throw new Error('No lines reported in /status (missing LineCount or LineN fields)');
       }
 
       const scheduleResponses = await Promise.all(
-        lineIds.map((lineId) => axios.get(`${baseURL}/schedule/${lineId}`, { timeout: 5000 }))
+        lineIds.map((lineId) => api.getSchedule(lineId))
       );
 
       const scheduleData = lineIds.map((lineId, index) =>
-        scheduleFromApiToLocal({ line: lineId, ...scheduleResponses[index].data })
+        scheduleFromApiToLocal({ line: lineId, ...scheduleResponses[index] })
       );
 
       setLines(
         lineIds.map((lineId, index) => ({
           id: lineId,
           name: getLineDisplayName(lineId),
-          status: normalizeState(statusRes.data?.[`Line${lineId}`]?.Value),
-          source: normalizeSource(statusRes.data?.[`Line${lineId}`]?.Source, 'off'),
-          scheduleEnabled: !!scheduleResponses[index].data?.Enabled,
+          status: normalizeState(statusRes?.[`Line${lineId}`]?.Value),
+          source: normalizeSource(statusRes?.[`Line${lineId}`]?.Source, 'off'),
+          scheduleEnabled: !!scheduleResponses[index]?.Enabled,
         }))
       );
       setSchedule(scheduleData);
@@ -560,12 +611,12 @@ export default function App() {
       const line = lines.find((l) => l.id === lineId);
       const newState = line.status === 'on' ? 'off' : 'on';
 
-      const res = await axios.post(`${baseURL}/line/${lineId}`, { Value: newState }, { timeout: 3000 });
+      const res = await api.setLine(lineId, newState);
       const updatedLines = lines.map((l) =>
         l.id === lineId
           ? {
             ...l,
-            status: normalizeState(res.data.Value),
+            status: normalizeState(res?.Value ?? newState),
             source: newState === 'on' ? 'manual' : 'off',
           }
           : l
@@ -585,7 +636,7 @@ export default function App() {
   const clearLogs = async () => {
     try {
       setLoading(true);
-      await axios.post(`${baseURL}/logs/clear`, {}, { timeout: 3000 });
+      await api.clearLogs();
 
       setLogs([]);
     } catch (error) {
@@ -597,8 +648,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!bootstrapped) return;
+    if (apiMode === 'cloud' && !isAuthenticated) return;
     fetchAllData({ force: true });
-  }, [serverIP]);
+  }, [serverIP, deviceId, cloudBaseUrl, apiMode, isAuthenticated, bootstrapped]);
 
   const handleTabPress = (tabName) => {
     setActiveTab(tabName);
@@ -610,9 +663,9 @@ export default function App() {
   const refreshLogs = async () => {
     try {
       setLoading(true);
-      const logsRes = await axios.get(`${baseURL}/logs?limit=50`, { timeout: 5000 });
-      if (logsRes?.data) {
-        setLogs(parseLogsResponse(logsRes.data));
+      const logsRes = await api.getLogs(50);
+      if (logsRes) {
+        setLogs(parseLogsResponse(logsRes));
       }
     } catch (error) {
       console.error('refreshLogs error:', error?.message || error);
@@ -703,12 +756,81 @@ export default function App() {
   const renderSettingsTab = () => (
     <ScrollView style={styles.tabContent}>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Server Settings</Text>
+        <Text style={styles.sectionTitle}>Connection Mode</Text>
+        <View style={styles.modeRow}>
+          <TouchableOpacity
+            style={[styles.modeButton, apiMode === 'cloud' && styles.modeButtonActive]}
+            onPress={async () => {
+              setApiModeState('cloud');
+              await persistApiMode('cloud');
+            }}
+          >
+            <Text style={styles.modeButtonText}>Cloud</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeButton, apiMode === 'lan' && styles.modeButtonActive]}
+            onPress={async () => {
+              setApiModeState('lan');
+              await persistApiMode('lan');
+            }}
+          >
+            <Text style={styles.modeButtonText}>LAN</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.scheduleInfo}>
+          {apiMode === 'cloud'
+            ? 'Remote control via AWS API (requires sign-in).'
+            : 'Direct HTTP to ESP32 on local network.'}
+        </Text>
+      </View>
+
+      {apiMode === 'cloud' && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Cloud API</Text>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>API base URL:</Text>
+            <TextInput
+              style={styles.input}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder={irrigationConfig.defaultCloudBaseUrl}
+              value={cloudBaseUrl}
+              onChangeText={setCloudBaseUrl}
+            />
+          </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Device ID (IoT Thing name):</Text>
+            <TextInput
+              style={styles.input}
+              placeholder={irrigationConfig.defaultDeviceId}
+              value={deviceId}
+              onChangeText={setDeviceId}
+            />
+          </View>
+          <Text style={styles.scheduleInfo}>
+            Signed in as {isAuthenticated ? authUsername || 'cloud user' : 'not signed in'}.
+          </Text>
+          {isAuthenticated ? (
+            <TouchableOpacity
+              style={styles.scanButton}
+              onPress={async () => {
+                await cognitoSignOut();
+                setIsAuthenticated(false);
+              }}
+            >
+              <Text style={styles.scanButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      )}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>LAN Settings</Text>
         <View style={styles.inputContainer}>
           <Text style={styles.label}>Server IP:</Text>
           <TextInput
             style={styles.input}
-            placeholder="192.168.100.161"
+            placeholder={irrigationConfig.defaultServerIp}
             value={serverIP}
             onChangeText={setServerIP}
           />
@@ -717,14 +839,12 @@ export default function App() {
         <TouchableOpacity
           style={[styles.scanButton, scanning && styles.scanButtonDisabled]}
           onPress={scanNetworkForDevices}
-          disabled={scanning}
+          disabled={scanning || apiMode !== 'lan'}
         >
           <Text style={styles.scanButtonText}>
             {scanning ? 'Scanning network...' : 'Scan Network'}
           </Text>
         </TouchableOpacity>
-
-        <Text style={styles.scheduleInfo}>🔌 Real API mode is always enabled.</Text>
       </View>
     </ScrollView>
   );
@@ -732,18 +852,18 @@ export default function App() {
   const refreshSchedules = async () => {
     try {
       setLoading(true);
-      const statusRes = await axios.get(`${baseURL}/status`, { timeout: 3000 });
-      const lineIds = parseLineIdsFromStatus(statusRes.data);
+      const statusRes = await api.getStatus();
+      const lineIds = parseLineIdsFromStatus(statusRes);
       if (lineIds.length === 0) {
         throw new Error('No lines reported in /status');
       }
 
       const scheduleResponses = await Promise.all(
-        lineIds.map((lineId) => axios.get(`${baseURL}/schedule/${lineId}`, { timeout: 3000 }))
+        lineIds.map((lineId) => api.getSchedule(lineId))
       );
 
       const scheduleData = lineIds.map((lineId, index) =>
-        scheduleFromApiToLocal({ line: lineId, ...scheduleResponses[index].data })
+        scheduleFromApiToLocal({ line: lineId, ...scheduleResponses[index] })
       );
 
       setSchedule(scheduleData);
@@ -947,6 +1067,66 @@ export default function App() {
       </View>
     </ScrollView>
   );
+
+  if (!bootstrapped) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>🌱 Irrigation System</Text>
+        <Text style={styles.scheduleInfo}>Loading settings...</Text>
+      </View>
+    );
+  }
+
+  if (apiMode === 'cloud' && !isAuthenticated) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>🌱 Irrigation System</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Cloud Sign In</Text>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Username</Text>
+            <TextInput
+              style={styles.input}
+              autoCapitalize="none"
+              value={authUsername}
+              onChangeText={setAuthUsername}
+            />
+          </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Password</Text>
+            <TextInput
+              style={styles.input}
+              secureTextEntry
+              value={authPassword}
+              onChangeText={setAuthPassword}
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.scanButton}
+            onPress={async () => {
+              try {
+                await cognitoSignIn(authUsername.trim(), authPassword);
+                setIsAuthenticated(true);
+              } catch (error) {
+                Alert.alert('Sign in failed', error?.message || 'Unable to sign in');
+              }
+            }}
+          >
+            <Text style={styles.scanButtonText}>Sign In</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.scanButton, { marginTop: 12, backgroundColor: '#607D8B' }]}
+            onPress={async () => {
+              setApiModeState('lan');
+              await persistApiMode('lan');
+            }}
+          >
+            <Text style={styles.scanButtonText}>Use LAN Mode Instead</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1162,6 +1342,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  modeButton: {
+    flex: 1,
+    backgroundColor: '#E0E0E0',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    backgroundColor: '#2E7D32',
+  },
+  modeButtonText: {
+    color: '#111',
+    fontWeight: '700',
   },
   // Line card
   lineCard: {

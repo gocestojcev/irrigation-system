@@ -9,9 +9,11 @@
     "cdk": "cdk",
     "synth": "npm run build && cdk synth",
     "diff": "npm run build && cdk diff",
-    "deploy:dev": "npm run build && cdk deploy IrrigationApiStack-dev",
-    "deploy:prod": "npm run build && cdk deploy IrrigationApiStack-prod",
+    "deploy:dev": "npm run build && cdk deploy IrrigationApiStack-dev --profile goce",
+    "deploy:prod": "npm run build && cdk deploy IrrigationApiStack-prod --profile goce",
     "seed:access": "ts-node scripts/seed-access.ts",
+    "provision:device": "ts-node scripts/provision-device.ts",
+    "setup:cognito-client": "ts-node scripts/setup-cognito-client.ts",
     "fixture:ingest": "ts-node scripts/run-fixture.ts ingest scripts/fixtures/ingest-command-result.applied.json",
     "fixture:timeout": "ts-node scripts/run-fixture.ts timeout"
   },
@@ -24,8 +26,11 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.798.0",
     "@aws-sdk/client-dynamodb": "^3.798.0",
+    "@aws-sdk/client-iot": "^3.798.0",
     "@aws-sdk/client-iot-data-plane": "^3.798.0",
+    "@aws-sdk/client-sts": "^3.798.0",
     "@aws-sdk/lib-dynamodb": "^3.798.0",
     "ajv": "^8.17.1",
     "aws-cdk-lib": "^2.190.0",

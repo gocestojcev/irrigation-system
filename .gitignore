@@ -17,6 +17,9 @@ web-build/
 *.p12
 *.key
 *.mobileprovision
+irrigation-system-aws/output/
+irrigation-system-esp32/secrets/iot_secrets.h
+irrigation-system-esp32/secrets/wifi_secrets.h
 
 # Logs & debug
 *.log

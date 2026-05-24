@@ -3,6 +3,7 @@ import { errorJson, getCallerSub, json } from '../common/http';
 import { hasDeviceAccess } from '../common/access';
 import { acceptedResponse, newCommandId } from '../common/commands';
 import { updateDesiredShadow } from '../common/iot';
+import { clearDeviceLogs } from '../common/log-store';
 import { markCommandFailed, putPendingCommand } from '../common/command-store';
 import { elapsedMs, logError, logInfo, logWarn, startTimer } from '../common/logger';
 
@@ -22,6 +23,9 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
   const commandsTable = process.env.COMMANDS_TABLE_NAME;
   if (!commandsTable) return errorJson(500, 'INTERNAL_ERROR', 'Missing COMMANDS_TABLE_NAME configuration.', { event });
+
+  const logsTable = process.env.LOGS_TABLE_NAME;
+  if (!logsTable) return errorJson(500, 'INTERNAL_ERROR', 'Missing LOGS_TABLE_NAME configuration.', { event });
 
   if (!(await hasDeviceAccess(table, sub, deviceId, 'operator'))) {
     logWarn('api.post_logs_clear.forbidden', { requestId, deviceId, userSub: sub });
@@ -74,6 +78,15 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
 
     return errorJson(503, 'UPSTREAM_IOT_UNAVAILABLE', 'Unable to publish command to IoT shadow.', { event });
   }
+
+  // Policy: cloud + device — purge cloud history immediately, device clears local NVS via command.
+  const deletedCount = await clearDeviceLogs(logsTable, deviceId);
+  logInfo('api.post_logs_clear.cloud_logs_cleared', {
+    requestId,
+    commandId,
+    deviceId,
+    deletedCount,
+  });
 
   logInfo('api.post_logs_clear.accepted', {
     requestId,

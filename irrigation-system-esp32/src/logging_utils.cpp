@@ -5,6 +5,8 @@
 
 #include "logging_utils.h"
 
+#include <time.h>
+
 #include "globals.h"
 
 String formatTimeFromEpoch(uint32_t epoch) {
@@ -15,6 +17,16 @@ String formatTimeFromEpoch(uint32_t epoch) {
   char buf[9];
   snprintf(buf, sizeof(buf), "%02d:%02d:%02d", hh, mm, ss);
   return String(buf);
+}
+
+String formatIso8601FromEpoch(uint32_t epoch) {
+  time_t raw = static_cast<time_t>(epoch);
+  struct tm timeinfo;
+  gmtime_r(&raw, &timeinfo);
+
+  char buffer[25];
+  strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+  return String(buffer);
 }
 
 void logRequest() {

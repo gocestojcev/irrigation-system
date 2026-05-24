@@ -3,7 +3,7 @@ import { errorJson, getCallerSub, json } from '../common/http';
 import { hasDeviceAccess } from '../common/access';
 import { acceptedResponse, newCommandId } from '../common/commands';
 import { updateDesiredShadow } from '../common/iot';
-import { parseJsonBody, validateScheduleSetBody } from '../common/validation';
+import { isValidLineId, parseJsonBody, validateScheduleSetBody } from '../common/validation';
 import { markCommandFailed, putPendingCommand } from '../common/command-store';
 import { elapsedMs, logError, logInfo, logWarn, startTimer } from '../common/logger';
 
@@ -15,7 +15,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   logInfo('api.post_schedule.request', { requestId, deviceId, lineId });
 
   if (!deviceId || !lineId) return errorJson(400, 'VALIDATION_MISSING_FIELD', 'Missing path parameters.', { event });
-  if (!['1', '2'].includes(lineId)) return errorJson(400, 'VALIDATION_INVALID_LINE_ID', 'lineId must be 1 or 2.', { event });
+  if (!isValidLineId(lineId)) return errorJson(400, 'VALIDATION_INVALID_LINE_ID', 'lineId must be 1, 2, or 3.', { event });
 
   const sub = getCallerSub(event);
   if (!sub) return errorJson(401, 'AUTH_INVALID_TOKEN', 'Missing verified user context from authorizer.', { event });

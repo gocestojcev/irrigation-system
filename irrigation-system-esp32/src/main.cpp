@@ -1,18 +1,16 @@
 // main.cpp
 // Entry point for the ESP32 irrigation controller.
-// Handles Wi-Fi connection, NTP sync, hardware initialisation,
-// HTTP server startup, and the main loop that evaluates schedules
-// and drives relay outputs on every iteration.
 
 #include <Arduino.h>
-#include <WiFi.h>
 
 #include "api.h"
 #include "config.h"
 #include "globals.h"
+#include "iot_client.h"
 #include "relay_control.h"
 #include "scheduler.h"
 #include "storage.h"
+#include "wifi_config.h"
 
 void setup() {
   Serial.begin(115200);
@@ -25,16 +23,7 @@ void setup() {
     loadLogs();
   }
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  connectWifi();
 
   registerRoutes();
   server.begin();
@@ -42,10 +31,13 @@ void setup() {
 
   timeClient.begin();
   timeClient.update();
+
+  setupIotClient();
 }
 
 void loop() {
   server.handleClient();
+  iotClientLoop();
   timeClient.update();
 
   uint32_t epoch = timeClient.getEpochTime();

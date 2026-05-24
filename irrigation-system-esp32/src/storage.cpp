@@ -4,6 +4,7 @@
 // and manages the 60-entry activity log ring buffer (saveLogs, loadLogs, appendLog).
 
 #include "storage.h"
+#include "iot_client.h"
 #include <cstring>
 #include "config.h"
 #include "globals.h"
@@ -82,6 +83,7 @@ void appendLog(int line, bool started, uint8_t source, uint32_t durationSec, uin
   }
 
   saveLogs();
+  notifyLogEvent(line, started, source, durationSec, epoch);
 }
 
 void saveSchedule(int line) {

@@ -2,7 +2,7 @@ import { APIGatewayProxyEventV2, APIGatewayProxyResult } from 'aws-lambda';
 import { IoTDataPlaneClient, GetThingShadowCommand } from '@aws-sdk/client-iot-data-plane';
 import { errorJson, getCallerSub, json } from '../common/http';
 import { hasDeviceAccess } from '../common/access';
-import { validateScheduleBody } from '../common/validation';
+import { isValidLineId, validateScheduleBody } from '../common/validation';
 
 const iot = new IoTDataPlaneClient({});
 
@@ -11,7 +11,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
   const lineId = event.pathParameters?.lineId;
 
   if (!deviceId || !lineId) return errorJson(400, 'VALIDATION_MISSING_FIELD', 'Missing path parameters.', { event });
-  if (!['1', '2'].includes(lineId)) return errorJson(400, 'VALIDATION_INVALID_LINE_ID', 'lineId must be 1 or 2.', { event });
+  if (!isValidLineId(lineId)) return errorJson(400, 'VALIDATION_INVALID_LINE_ID', 'lineId must be 1, 2, or 3.', { event });
 
   const sub = getCallerSub(event);
   if (!sub) return errorJson(401, 'AUTH_INVALID_TOKEN', 'Missing verified user context from authorizer.', { event });
