@@ -1,0 +1,34 @@
+{
+  "name": "irrigation-system-aws",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AWS CDK infrastructure and Lambda handlers for irrigation-system cloud backend",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -w -p tsconfig.json",
+    "cdk": "cdk",
+    "synth": "npm run build && cdk synth",
+    "diff": "npm run build && cdk diff",
+    "deploy:dev": "npm run build && cdk deploy IrrigationApiStack-dev",
+    "deploy:prod": "npm run build && cdk deploy IrrigationApiStack-prod",
+    "seed:access": "ts-node scripts/seed-access.ts",
+    "fixture:ingest": "ts-node scripts/run-fixture.ts ingest scripts/fixtures/ingest-command-result.applied.json",
+    "fixture:timeout": "ts-node scripts/run-fixture.ts timeout"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.146",
+    "@types/node": "^22.15.17",
+    "aws-cdk": "^2.190.0",
+    "esbuild": "^0.25.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.798.0",
+    "@aws-sdk/client-iot-data-plane": "^3.798.0",
+    "@aws-sdk/lib-dynamodb": "^3.798.0",
+    "ajv": "^8.17.1",
+    "aws-cdk-lib": "^2.190.0",
+    "constructs": "^10.4.2"
+  }
+}

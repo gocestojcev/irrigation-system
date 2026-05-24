@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irrigation-system/schemas/reported-state.v1.json",
+  "title": "ReportedStateV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "deviceId", "status", "schedule", "lastCommand"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "deviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Epoch", "Time", "Line1", "Line2"],
+      "properties": {
+        "Epoch": { "type": "integer", "minimum": 0 },
+        "Time": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$"
+        },
+        "Line1": { "$ref": "#/$defs/lineStatus" },
+        "Line2": { "$ref": "#/$defs/lineStatus" }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["1", "2"],
+      "properties": {
+        "1": { "$ref": "#/$defs/lineSchedule" },
+        "2": { "$ref": "#/$defs/lineSchedule" }
+      }
+    },
+    "lastCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commandId", "status", "updatedAt"],
+      "properties": {
+        "commandId": { "type": "string", "format": "uuid" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "applied", "failed", "timeout"]
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "$defs": {
+    "lineStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Value", "Source"],
+      "properties": {
+        "Value": { "type": "string", "enum": ["on", "off"] },
+        "Source": {
+          "type": "string",
+          "enum": ["manual", "scheduled", "system", "off", "unknown"]
+        }
+      }
+    },
+    "lineSchedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Enabled", "Start", "End", "Duration", "IntervalSec", "DaysMask"],
+      "properties": {
+        "Enabled": { "type": "boolean" },
+        "Start": {
+          "type": "string",
+          "pattern": "^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$"
+        },
+        "End": {
+          "type": "string",
+          "pattern": "^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$"
+        },
+        "Duration": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "IntervalSec": { "type": "integer", "minimum": 0, "maximum": 86400 },
+        "DaysMask": { "type": "integer", "minimum": 0, "maximum": 127 },
+        "Days": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+          }
+        }
+      }
+    }
+  }
+}

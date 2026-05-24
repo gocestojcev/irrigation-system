@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "ESP32-Mobile",
+    "slug": "esp32-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.goce.esp32mobile"
+    },
+    "android": {
+      "package": "com.goce.esp32mobile",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE"
+      ]
+    },
+    "web": {},
+    "extra": {
+      "eas": {
+        "projectId": "6c14246c-ea28-498d-9c33-c3a9bba4b5d0"
+      }
+    }
+  }
+}

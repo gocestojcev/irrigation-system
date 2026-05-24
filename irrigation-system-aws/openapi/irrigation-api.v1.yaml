@@ -1,0 +1,402 @@
+openapi: 3.0.3
+info:
+  title: Irrigation Cloud API
+  version: 1.0.0-draft
+  description: Mobile-facing cloud API that mirrors current ESP32 local endpoints.
+servers:
+  - url: https://api.example.com/v1
+security:
+  - bearerAuth: []
+paths:
+  /devices/{deviceId}/status:
+    get:
+      summary: Get combined runtime status
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Current status from reported state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /devices/{deviceId}/line/{lineId}:
+    get:
+      summary: Get line state
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/LineId'
+      responses:
+        '200':
+          description: Line state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineStateResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      summary: Set line state (async command)
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/LineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LineSetRequest'
+      responses:
+        '202':
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedCommandResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /devices/{deviceId}/schedule/{lineId}:
+    get:
+      summary: Get line schedule
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/LineId'
+      responses:
+        '200':
+          description: Schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      summary: Update line schedule (async command)
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - $ref: '#/components/parameters/LineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleSetRequest'
+      responses:
+        '202':
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedCommandResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /devices/{deviceId}/logs:
+    get:
+      summary: Get logs
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Latest logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogsResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /devices/{deviceId}/logs/clear:
+    post:
+      summary: Clear logs (async command)
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '202':
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedCommandResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /devices/{deviceId}/commands/{commandId}:
+    get:
+      summary: Get command status
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: commandId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Latest command state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandResultResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    LineId:
+      name: lineId
+      in: path
+      required: true
+      schema:
+        type: integer
+        enum: [1, 2]
+
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing/invalid auth token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated but not allowed for this device
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Device or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: State conflict or duplicate command
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    LineStateResponse:
+      type: object
+      required: [Value]
+      properties:
+        Value:
+          type: string
+          enum: [on, off]
+
+    StatusLine:
+      type: object
+      required: [Value, Source]
+      properties:
+        Value:
+          type: string
+          enum: [on, off]
+        Source:
+          type: string
+          enum: [manual, scheduled, system, off, unknown]
+
+    StatusResponse:
+      type: object
+      required: [Epoch, Time, Line1, Line2]
+      properties:
+        Epoch:
+          type: integer
+          minimum: 0
+        Time:
+          type: string
+          pattern: '^([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$'
+        Line1:
+          $ref: '#/components/schemas/StatusLine'
+        Line2:
+          $ref: '#/components/schemas/StatusLine'
+
+    ScheduleResponse:
+      type: object
+      required: [Enabled, Start, End, Duration, IntervalSec, DaysMask]
+      properties:
+        Enabled:
+          type: boolean
+        Start:
+          type: string
+          pattern: '^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$'
+        End:
+          type: string
+          pattern: '^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$'
+        Duration:
+          type: integer
+          minimum: 1
+          maximum: 86400
+        IntervalSec:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        DaysMask:
+          type: integer
+          minimum: 0
+          maximum: 127
+        Days:
+          type: array
+          items:
+            type: string
+            enum: [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+
+    LineSetRequest:
+      type: object
+      required: [Value]
+      properties:
+        Value:
+          type: string
+          enum: [on, off]
+
+    ScheduleSetRequest:
+      type: object
+      minProperties: 1
+      properties:
+        Enabled:
+          type: boolean
+        Start:
+          type: string
+          pattern: '^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$'
+        End:
+          type: string
+          pattern: '^(([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d|24:00:00)$'
+        Duration:
+          type: integer
+          minimum: 1
+          maximum: 86400
+        IntervalSec:
+          type: integer
+          minimum: 0
+          maximum: 86400
+        DaysMask:
+          type: integer
+          minimum: 0
+          maximum: 127
+
+    AcceptedCommandResponse:
+      type: object
+      required: [commandId, status, acceptedAt]
+      properties:
+        commandId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending]
+        acceptedAt:
+          type: string
+          format: date-time
+
+    CommandResultResponse:
+      type: object
+      required: [commandId, status, updatedAt]
+      properties:
+        commandId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, applied, failed, timeout]
+        updatedAt:
+          type: string
+          format: date-time
+        appliedAt:
+          type: string
+          format: date-time
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
+
+    LogEntry:
+      type: object
+      required: [Epoch, Time, Line, Event, Source, DurationSec, DurationMin]
+      properties:
+        Epoch:
+          type: integer
+          minimum: 0
+        Time:
+          type: string
+        Line:
+          type: integer
+          enum: [1, 2]
+        Event:
+          type: string
+          enum: [Started, Stopped]
+        Source:
+          type: string
+          enum: [manual, scheduled, system, unknown]
+        DurationSec:
+          type: integer
+          minimum: 0
+        DurationMin:
+          type: integer
+          minimum: 0
+
+    LogsResponse:
+      type: object
+      required: [Count, Logs]
+      properties:
+        Count:
+          type: integer
+          minimum: 0
+        Logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+
+    ErrorResponse:
+      type: object
+      required: [errorCode, message]
+      properties:
+        errorCode:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true

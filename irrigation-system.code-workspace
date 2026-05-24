@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"name": "ESP32 Firmware",
+			"path": "irrigation-system-esp32"
+		},
+		{
+			"name": "Mobile App",
+			"path": "irrigation-system-mobile"
+		},
+		{
+			"name": "AWS Backend",
+			"path": "irrigation-system-aws"
+		}
+	],
+	"settings": {}
+}

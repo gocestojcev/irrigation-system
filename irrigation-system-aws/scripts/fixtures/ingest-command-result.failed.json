@@ -1,0 +1,8 @@
+{
+  "deviceId": "irrigation-dev-001",
+  "commandId": "22222222-2222-4222-8222-222222222222",
+  "status": "failed",
+  "updatedAt": "2026-04-01T10:31:00.000Z",
+  "errorCode": "STATE_CONFLICT",
+  "errorMessage": "Single active line safety rule blocked command."
+}
