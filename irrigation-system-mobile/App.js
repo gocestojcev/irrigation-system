@@ -5,6 +5,15 @@ import axios from 'axios';
 import { parseLineIdsFromStatus } from './services/lineDiscovery';
 import { getLineDisplayName, getLineMeta } from './services/lineLabels';
 import { LineAvatar } from './components/LineAvatar';
+import { MoistureIconButton } from './components/MoistureIconButton';
+import { MoistureHistoryChart } from './components/MoistureHistoryChart';
+import { MoistureReadout } from './components/MoistureReadout';
+import {
+  generateMockMoistureHistory,
+  getMockMoistureForLine,
+  MOISTURE_RANGES,
+  resolveMoistureForLine,
+} from './services/moistureSensors';
 import { irrigationConfig } from './services/config';
 import { createIrrigationApi } from './services/irrigationApi';
 import {
@@ -52,6 +61,8 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
+  const [selectedMoistureLineId, setSelectedMoistureLineId] = useState(1);
+  const [moistureRange, setMoistureRange] = useState('3d');
   const isFetchingRef = useRef(false);
   const consecutiveFailuresRef = useRef(0);
   const nextAllowedFetchAtRef = useRef(0);
@@ -397,13 +408,17 @@ export default function App() {
       );
 
       setLines(
-        lineIds.map((lineId, index) => ({
-          id: lineId,
-          name: getLineDisplayName(lineId),
-          status: normalizeState(statusRes?.[`Line${lineId}`]?.Value),
-          source: normalizeSource(statusRes?.[`Line${lineId}`]?.Source, 'off'),
-          scheduleEnabled: !!scheduleResponses[index]?.Enabled,
-        }))
+        lineIds.map((lineId, index) => {
+          const moisture = resolveMoistureForLine(statusRes, lineId);
+          return {
+            id: lineId,
+            name: getLineDisplayName(lineId),
+            status: normalizeState(statusRes?.[`Line${lineId}`]?.Value),
+            source: normalizeSource(statusRes?.[`Line${lineId}`]?.Source, 'off'),
+            scheduleEnabled: !!scheduleResponses[index]?.Enabled,
+            moisture,
+          };
+        })
       );
       setSchedule(scheduleData);
       setScheduleDrafts((prev) => {
@@ -513,6 +528,20 @@ export default function App() {
     fetchAllData({ force: true });
   }, [serverIP, deviceId, cloudBaseUrl, apiMode, isAuthenticated, bootstrapped]);
 
+  useEffect(() => {
+    if (!lines.length) return;
+    if (!lines.some((line) => line.id === selectedMoistureLineId)) {
+      setSelectedMoistureLineId(lines[0].id);
+    }
+  }, [lines, selectedMoistureLineId]);
+
+  const openMoistureTab = (lineId) => {
+    if (lineId != null) {
+      setSelectedMoistureLineId(lineId);
+    }
+    setActiveTab('moisture');
+  };
+
   const handleTabPress = (tabName) => {
     setActiveTab(tabName);
     if (tabName === 'home') fetchAllData({ force: true });
@@ -556,7 +585,17 @@ export default function App() {
             disabled={loading}
           >
             <View style={styles.lineCardContent}>
-              <LineAvatar lineId={line.id} size={64} style={styles.lineAvatar} />
+              <View style={styles.lineAvatarColumn}>
+                <LineAvatar lineId={line.id} size={64} />
+                {line.moisture ? (
+                  <MoistureIconButton
+                    percent={line.moisture.percent}
+                    onPress={() => openMoistureTab(line.id)}
+                    size={52}
+                    style={styles.lineMoistureIcon}
+                  />
+                ) : null}
+              </View>
               <View style={styles.lineCardBody}>
                 <View style={styles.lineHeader}>
                   <Text style={styles.lineName}>{line.name}</Text>
@@ -575,7 +614,7 @@ export default function App() {
                   Runtime source: {formatSourceLabel(line.source)} • Scheduler {line.scheduleEnabled ? 'enabled' : 'disabled'}
                 </Text>
                 <Text style={styles.lineInfo}>
-                  Tap to switch this line {line.status === 'on' ? 'off' : 'on'} manually
+                  Tap line to switch {line.status === 'on' ? 'off' : 'on'} • Tap 💧 for moisture history
                 </Text>
               </View>
             </View>
@@ -614,6 +653,72 @@ export default function App() {
 
     </ScrollView>
   );
+
+  const renderMoistureTab = () => {
+    const selectedLine =
+      lines.find((line) => line.id === selectedMoistureLineId) || lines[0];
+    const lineId = selectedLine?.id ?? selectedMoistureLineId;
+    const currentMoisture =
+      selectedLine?.moisture ?? getMockMoistureForLine(lineId);
+    const history = generateMockMoistureHistory(lineId, moistureRange);
+
+    return (
+      <ScrollView style={styles.tabContent}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Soil Moisture</Text>
+          <Text style={styles.sectionSubtitle}>Preview data until sensors are installed</Text>
+
+          <Text style={styles.moisturePickerLabel}>Line</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.moistureLinePicker}>
+            {lines.map((line) => {
+              const active = line.id === lineId;
+              return (
+                <TouchableOpacity
+                  key={`moisture-line-${line.id}`}
+                  style={[
+                    styles.moistureLineChip,
+                    active && styles.moistureLineChipActive,
+                    active && { borderColor: getLineMeta(line.id).accent },
+                  ]}
+                  onPress={() => setSelectedMoistureLineId(line.id)}
+                >
+                  <LineAvatar lineId={line.id} size={36} />
+                  <Text style={[styles.moistureLineChipText, active && styles.moistureLineChipTextActive]}>
+                    {line.name}
+                  </Text>
+                  {line.moisture ? (
+                    <Text style={styles.moistureLineChipMeta}>{line.moisture.percent}%</Text>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <MoistureReadout
+            percent={currentMoisture.percent}
+            isMock={currentMoisture.isMock}
+          />
+
+          <Text style={styles.moisturePickerLabel}>History</Text>
+          <View style={styles.rangeRow}>
+            {Object.entries(MOISTURE_RANGES).map(([key, { label }]) => (
+              <TouchableOpacity
+                key={key}
+                style={[styles.rangeChip, moistureRange === key && styles.rangeChipActive]}
+                onPress={() => setMoistureRange(key)}
+              >
+                <Text style={[styles.rangeChipText, moistureRange === key && styles.rangeChipTextActive]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <MoistureHistoryChart data={history} rangeKey={moistureRange} />
+        </View>
+      </ScrollView>
+    );
+  };
 
   // Settings Tab Content
   const renderSettingsTab = () => (
@@ -1094,6 +1199,7 @@ export default function App() {
 
       {/* Tab content */}
       {activeTab === 'home' && renderHomeTab()}
+      {activeTab === 'moisture' && renderMoistureTab()}
       {activeTab === 'schedules' && renderSchedulesTab()}
       {activeTab === 'logs' && renderLogsTab()}
       {activeTab === 'settings' && renderSettingsTab()}
@@ -1104,25 +1210,31 @@ export default function App() {
           style={[styles.navButton, activeTab === 'home' && styles.navButtonActive]}
           onPress={() => handleTabPress('home')}
         >
-          <Text style={styles.navButtonText}>🏠 Home</Text>
+          <Text style={styles.navButtonText}>🏠{'\n'}Home</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.navButton, activeTab === 'moisture' && styles.navButtonActive]}
+          onPress={() => handleTabPress('moisture')}
+        >
+          <Text style={styles.navButtonText}>💧{'\n'}Moisture</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.navButton, activeTab === 'schedules' && styles.navButtonActive]}
           onPress={() => handleTabPress('schedules')}
         >
-          <Text style={styles.navButtonText}>🗓 Schedules</Text>
+          <Text style={styles.navButtonText}>🗓{'\n'}Sched</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.navButton, activeTab === 'logs' && styles.navButtonActive]}
           onPress={() => handleTabPress('logs')}
         >
-          <Text style={styles.navButtonText}>📋 Logs</Text>
+          <Text style={styles.navButtonText}>📋{'\n'}Logs</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.navButton, activeTab === 'settings' && styles.navButtonActive]}
           onPress={() => handleTabPress('settings')}
         >
-          <Text style={styles.navButtonText}>⚙️ Settings</Text>
+          <Text style={styles.navButtonText}>⚙️{'\n'}Set</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -1166,6 +1278,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: '#81C784',
     paddingBottom: 8,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+    marginTop: -4,
   },
   // Input
   inputContainer: {
@@ -1252,13 +1370,18 @@ const styles = StyleSheet.create({
   },
   lineCardContent: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
-  lineAvatar: {
+  lineAvatarColumn: {
+    alignItems: 'center',
     marginRight: 12,
+  },
+  lineMoistureIcon: {
+    marginTop: 8,
   },
   lineCardBody: {
     flex: 1,
+    paddingTop: 2,
   },
   lineCardActive: {
     borderLeftColor: '#2E7D32',
@@ -1296,6 +1419,68 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 4,
+  },
+  moisturePickerLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#33691E',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  moistureLinePicker: {
+    marginBottom: 4,
+  },
+  moistureLineChip: {
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginRight: 10,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FAFAFA',
+    minWidth: 88,
+  },
+  moistureLineChipActive: {
+    backgroundColor: '#E8F5E9',
+  },
+  moistureLineChipText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#555',
+  },
+  moistureLineChipTextActive: {
+    color: '#1B5E20',
+  },
+  moistureLineChipMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2E7D32',
+  },
+  rangeRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  rangeChip: {
+    flex: 1,
+    paddingVertical: 10,
+    marginHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: '#EEEEEE',
+    alignItems: 'center',
+  },
+  rangeChipActive: {
+    backgroundColor: '#C8E6C9',
+  },
+  rangeChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#555',
+  },
+  rangeChipTextActive: {
+    color: '#1B5E20',
   },
   // Schedule card
   scheduleCard: {
@@ -1584,9 +1769,9 @@ const styles = StyleSheet.create({
   },
   navButton: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    marginHorizontal: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    marginHorizontal: 2,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1598,10 +1783,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2E7D32',
   },
   navButtonText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
+    lineHeight: 13,
   },
   offlineBanner: {
     marginHorizontal: 12,
