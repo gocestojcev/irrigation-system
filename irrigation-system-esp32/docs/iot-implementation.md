@@ -1,64 +1,16 @@
-# IoT Implementation Plan (ESP32 + AWS Relay)
+# ESP32 IoT Integration (MQTT + Thing Shadow)
 
 **Last reviewed:** 2026-05-25  
-**Parent plan:** [IMPLEMENTATION_PLAN.md](../../irrigation-system-aws/IMPLEMENTATION_PLAN.md)  
+**Architecture & phases:** [IMPLEMENTATION_PLAN.md](../../irrigation-system-aws/IMPLEMENTATION_PLAN.md)  
 **Deploy / flash:** [DEPLOYMENT.md](../../DEPLOYMENT.md)
 
 ## Status
 
-Firmware IoT integration is **complete and E2E-verified** on `irrigation-dev-001`. Operational steps: [DEPLOYMENT.md §2](../../DEPLOYMENT.md#2-esp32-firmware--flash-and-monitor).
-
-## Continue tomorrow
-
-**Superseded** by [DEPLOYMENT.md](../../DEPLOYMENT.md). Historical tasks:
-
-## Goal
-Enable secure remote control of the ESP32 from the public internet **without exposing the device directly** and **without requiring a static public IP**.
+Firmware IoT integration is **complete and E2E-verified** on `irrigation-dev-001`. Flash and monitor: [DEPLOYMENT.md §2](../../DEPLOYMENT.md#2-esp32-firmware--flash-and-monitor).
 
 ---
 
-## Chosen Architecture
-- **ESP32 firmware** connects outbound to **AWS IoT Core** over MQTT/TLS using per-device X.509 certificates.
-- **Mobile app** calls a **cloud API** (API Gateway + Lambda), not the ESP directly.
-- **Cloud backend** validates requests, authorizes user/device access, and writes commands to AWS IoT Thing Shadow.
-- **ESP32** consumes shadow deltas, applies local safety rules, executes relay actions, and reports status back.
-
-### Why this approach
-- Works behind NAT/CGNAT and dynamic IP.
-- No router port-forwarding required.
-- Centralized auth, auditing, and rate limiting.
-- Production-friendly and scalable.
-
----
-
-## Responsibility Split
-
-### Cloud (API + Lambda) — mostly implemented
-- Authenticate users (Cognito JWT).
-- Authorize access per device (DynamoDB `device_user_access`).
-- Validate request shape/ranges.
-- Write command to Thing Shadow `desired.command`.
-- Track command lifecycle in DynamoDB; ingest results from MQTT topic.
-- Return `202 Accepted` with cloud-generated `commandId`.
-
-### Device (ESP32) — implemented and E2E-verified
-- MQTT/TLS connect with per-device certificate.
-- Subscribe to Thing Shadow delta for `state.desired.command`.
-- Map commands to existing internal handlers (`line`, `schedule`, `logs`).
-- Keep final, authoritative validation and safety logic.
-- Publish `reported` shadow (`status`, `schedule`, `lastCommand`) with NTP-based ISO-8601 timestamps.
-- Publish acknowledgements to `irrigation/devices/{deviceId}/command-result`.
-- Periodic shadow heartbeat (`SHADOW_HEARTBEAT_INTERVAL_MS`, default 60s).
-- WiFi credentials from NVS or gitignored `secrets/wifi_secrets.h` (no hardcoded defaults in `config.h`).
-
-> Validation exists in both layers by design (defense in depth):
-> cloud = gateway protection, device = final safety barrier.
-
----
-
-## API Strategy for Mobile
-
-Cloud routes mirror local ESP32 shapes but add a device prefix and auth:
+## LAN vs cloud API (mobile)
 
 | Local (LAN) | Cloud |
 |-------------|-------|
@@ -69,94 +21,67 @@ Cloud routes mirror local ESP32 shapes but add a device prefix and auth:
 | `POST /logs/clear` | `POST /devices/{deviceId}/logs/clear` |
 | — | `GET /devices/{deviceId}/commands/{commandId}` |
 
-Write flow:
-1. Mobile sends authenticated request to cloud API.
-2. Cloud validates and writes `desired.command` with `commandId`.
-3. ESP receives shadow delta, executes, publishes result.
-4. Mobile polls command status or re-reads status.
+LAN HTTP reference: [API_ENDPOINTS.md](./API_ENDPOINTS.md).
 
-Read flow:
-- `GET /status`, `/line`, `/schedule` read from Thing Shadow **reported**.
-- `GET /logs` reads from DynamoDB (ingested from device MQTT telemetry).
+**Write flow:** mobile → cloud API → shadow `desired.command` → ESP32 delta → execute → `command-result` MQTT + updated `reported`.
+
+**Read flow:** cloud GET handlers read Thing Shadow `reported` (status/schedule). Logs read from DynamoDB (MQTT ingest).
 
 ---
 
-## Thing Shadow Contract (firmware must implement)
+## Thing Shadow contract (firmware)
 
-See [command-envelope.v1.json](../../irrigation-system-aws/schemas/command-envelope.v1.json) and [reported-state.v1.json](../../irrigation-system-aws/schemas/reported-state.v1.json).
+Schemas: [command-envelope.v1.json](../../irrigation-system-aws/schemas/command-envelope.v1.json), [reported-state.v1.json](../../irrigation-system-aws/schemas/reported-state.v1.json).
 
-**Subscribe:** shadow delta where `state.desired.command` changes.  
-**Publish reported:** update `state.reported` with `status`, `schedule`, `lastCommand`.  
-**Publish result:** MQTT topic `irrigation/devices/{deviceId}/command-result`.
+| Topic / action | Purpose |
+|----------------|---------|
+| Subscribe `$aws/things/{thing}/shadow/update/delta` | Receive `state.command` (not `state.desired.command`) |
+| Publish `$aws/things/{thing}/shadow/update` | Update `reported`; clear `desired.command` when done |
+| Publish `irrigation/devices/{thing}/command-result` | Command lifecycle for DynamoDB ingest |
+| Publish `irrigation/devices/{thing}/logs` | Log events for DynamoDB ingest |
 
-After processing a command, clear or merge `desired.command` per AWS shadow semantics to avoid re-processing.
+After processing a command, publish reported state with `desired.command: null` to clear the delta.
+
+Implementation: `src/iot_client.cpp`, shared handlers in `src/device_api.cpp`.
 
 ---
 
-## Monorepo Layout
+## Firmware implementation checklist
+
+| # | Task | Location |
+|---|------|----------|
+| 1 | MQTT/TLS (PubSubClient + WiFiClientSecure) | `src/iot_client.cpp` |
+| 2 | Cert/key/endpoint from `secrets/iot_secrets.h` | `provision-device.ts` |
+| 3 | Shadow delta subscription | `iot_client.cpp` |
+| 4 | Command envelope parse + NVS `commandId` idempotency | `iot_client.cpp` |
+| 5 | Dispatch `line.set`, `schedule.set`, `logs.clear` | `device_api.cpp` |
+| 6 | Reported shadow + command-result publish | `iot_client.cpp` |
+| 7 | Reconnect backoff + 60s shadow heartbeat | `iot_client.cpp` |
+| 8 | ISO-8601 timestamps from NTP | `logging_utils.cpp` |
+| 9 | WiFi via NVS / `secrets/wifi_secrets.h` | `wifi_config.cpp` |
+| 10 | Log backfill to cloud on MQTT connect | `iot_client.cpp` |
+
+**Line count:** firmware and cloud support **3 lines** (`LINE_COUNT=3`). See [FIRMWARE_DYNAMIC_LINES.md](./FIRMWARE_DYNAMIC_LINES.md).
+
+---
+
+## Expected serial output
+
 ```
-irrigation-system/
-  irrigation-system-esp32/    ← this project (PlatformIO)
-  irrigation-system-aws/      ← CDK + Lambda
-  irrigation-system-mobile/   ← Expo app
+WiFi connected
+HTTP server started
+[IOT] Client initialized for thing irrigation-dev-001
+[IOT] MQTT connected
+[IOT] Shadow reported published (… bytes)
 ```
 
-Local HTTP API remains useful for LAN development and optional fallback.
+On cloud command: `[IOT] Shadow delta command received`.
 
 ---
 
-## Phase Status
+## Non-goals
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 1 | Contracts + access model | Done (cloud) |
-| 2 | Cloud MVP | Done (dev deployed) |
-| 2.5 | Device onboarding (Thing, cert, policy) | Done (script + dev device) |
-| 3 | ESP32 MQTT + shadow handler | Code done — E2E pending |
-| 3b | Mobile cloud integration | Done (cloud/LAN modes) |
-| 4 | Logs in DynamoDB | Mostly done |
-| 5 | Hardening + ops | Partial |
+- Exposing device HTTP API to the public internet.
+- Port forwarding / DDNS remote access.
 
----
-
-## Firmware Tasks (Phase 3)
-
-| # | Task | Status | Implementation |
-|---|------|--------|----------------|
-| 1 | MQTT/TLS client (PubSubClient + WiFiClientSecure) | Done | `src/iot_client.cpp` |
-| 2 | Load cert/key/endpoint from `secrets/iot_secrets.h` | Done | Generated by `provision-device.ts` |
-| 3 | Subscribe to `$aws/things/{thingName}/shadow/update/delta` | Done | `iot_client.cpp` |
-| 4 | Parse command envelope; reject bad schema / duplicate `commandId` | Done | NVS idempotency store |
-| 5 | Dispatch `line.set`, `schedule.set`, `logs.clear` | Done | `src/device_api.cpp` |
-| 6 | Update reported shadow + publish `command-result` | Done | `iot_client.cpp` |
-| 7 | Reconnect backoff + 60s shadow heartbeat | Done | `SHADOW_HEARTBEAT_INTERVAL_MS` |
-| 8 | ISO-8601 timestamps from NTP epoch | Done | `logging_utils.cpp` |
-| 9 | WiFi via NVS / `secrets/wifi_secrets.h` | Done | `wifi_config.cpp` |
-| 10 | **Hardware E2E validation** | **Todo** | Flash + vertical slice |
-
-**Note:** firmware and cloud both support **3 relay lines** (`LINE_COUNT=3`).
-
----
-
-## Vertical Slice Target
-
-- [ ] Serial: WiFi + MQTT connected, no TLS errors
-- [ ] `POST /devices/irrigation-dev-001/line/1` → **202** + `commandId`
-- [ ] `GET …/commands/{commandId}` → **applied**
-- [ ] `GET …/status` → `Line1.Value == "on"`
-- [ ] Logs appear in cloud after line toggle; `POST /logs/clear` empties both sides
-
-See parent plan for curl examples and success metrics (P50 &lt; 2s, P95 &lt; 5s).
-
----
-
-## Non-Goals (initial rollout)
-- Direct internet exposure of device HTTP endpoints.
-- Port forwarding / DDNS-based control.
-
----
-
-## Notes
-- Existing local endpoints remain useful for LAN testing.
-- Cloud path becomes the primary production control plane for remote access.
-- NTP sync is already required and used in firmware (`main.cpp`).
+Local HTTP remains for LAN development and optional fallback.

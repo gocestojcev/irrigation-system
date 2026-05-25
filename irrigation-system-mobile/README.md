@@ -45,7 +45,7 @@ One-time Expo account (free): [expo.dev](https://expo.dev)
 ## Setup (first time on PC)
 
 ```powershell
-cd C:\projects\irrigation-system\esp32-mobile
+cd C:\goce.stojcev\projects\irrigation-system\irrigation-system-mobile
 npm install
 ```
 
@@ -176,8 +176,9 @@ npm run android
 
 ## API & firmware
 
-- Mobile API: [docs/MOBILE_API.md](docs/MOBILE_API.md)
-- Firmware line count / Line 3+: [docs/FIRMWARE_DYNAMIC_LINES.md](docs/FIRMWARE_DYNAMIC_LINES.md)
+- LAN API: [../irrigation-system-esp32/docs/MOBILE_API.md](../irrigation-system-esp32/docs/MOBILE_API.md)
+- Endpoint reference: [../irrigation-system-esp32/docs/API_ENDPOINTS.md](../irrigation-system-esp32/docs/API_ENDPOINTS.md)
+- Firmware line count / Line 3+: [../irrigation-system-esp32/docs/FIRMWARE_DYNAMIC_LINES.md](../irrigation-system-esp32/docs/FIRMWARE_DYNAMIC_LINES.md)
 
 Quick reference:
 

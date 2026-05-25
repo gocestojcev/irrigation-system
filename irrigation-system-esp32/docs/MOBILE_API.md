@@ -1,5 +1,7 @@
 # ESP32 Relay API (Mobile Integration)
 
+Integration guide for the LAN HTTP API. Endpoint reference: [API_ENDPOINTS.md](./API_ENDPOINTS.md). Dynamic lines: [FIRMWARE_DYNAMIC_LINES.md](./FIRMWARE_DYNAMIC_LINES.md).
+
 ## Base
 - Base URL: `http://<esp32-ip>`
 - Port: `80`
@@ -31,10 +33,13 @@ or
 {
   "Epoch": 1711824150,
   "Time": "19:42:30",
+  "LineCount": 3,
   "Line1": {"Value": "on", "Source": "scheduled"},
-  "Line2": {"Value": "off", "Source": "off"}
+  "Line2": {"Value": "off", "Source": "off"},
+  "Line3": {"Value": "off", "Source": "off"}
 }
 ```
+- `LineCount`: number of relay lines (`1..LineCount` for `/line/{n}` and `/schedule/{n}`)
 - `Source` values in `/status`: `manual` | `scheduled` | `off`
 
 ### Schedule
@@ -81,17 +86,23 @@ DaysMask bit mapping:
 ## 0) Runtime status
 
 ### GET /status
-Returns current state and active source for both lines.
+Returns current state and active source for all lines (`LineCount` + `Line1`..`LineN`).
+
+**Firmware implementation:** see [FIRMWARE_DYNAMIC_LINES.md](./FIRMWARE_DYNAMIC_LINES.md).
 
 **200**
 ```json
 {
   "Epoch": 1711824150,
   "Time": "19:42:30",
+  "LineCount": 3,
   "Line1": {"Value": "on", "Source": "scheduled"},
-  "Line2": {"Value": "off", "Source": "off"}
+  "Line2": {"Value": "off", "Source": "off"},
+  "Line3": {"Value": "off", "Source": "off"}
 }
 ```
+
+Mobile discovery: read `LineCount` when present; otherwise count `Line1`..`LineN` objects in the payload.
 
 ### OPTIONS /status
 **200** empty body
@@ -100,6 +111,7 @@ Returns current state and active source for both lines.
 
 ### GET /line/1
 ### GET /line/2
+### GET /line/3
 Returns current relay state.
 
 **200**
@@ -109,6 +121,7 @@ Returns current relay state.
 
 ### POST /line/1
 ### POST /line/2
+### POST /line/3
 Sets relay state.
 
 If set to `on`, the device first turns other lines `off` (manual single-line activation).
@@ -134,6 +147,7 @@ or
 
 ### OPTIONS /line/1
 ### OPTIONS /line/2
+### OPTIONS /line/3
 **200** empty body
 
 ---
@@ -142,6 +156,7 @@ or
 
 ### GET /schedule/1
 ### GET /schedule/2
+### GET /schedule/3
 Returns line schedule.
 
 **200**
@@ -151,6 +166,7 @@ Returns line schedule.
 
 ### POST /schedule/1
 ### POST /schedule/2
+### POST /schedule/3
 Create/update schedule.
 
 Body (auto-enable if `Enabled` omitted):
@@ -237,6 +253,7 @@ Update behavior:
 
 ### OPTIONS /schedule/1
 ### OPTIONS /schedule/2
+### OPTIONS /schedule/3
 **200** empty body
 
 ---
@@ -307,12 +324,12 @@ Any unknown route:
 
 ## Runtime behavior notes for mobile team
 
-- Supported lines are only `1` and `2`.
+- Line count is defined by firmware (`LineCount` in `/status`). Endpoints exist for `n = 1..LineCount` (`/line/{n}`, `/schedule/{n}`).
 - Scheduler is daily and repeats every day.
 - Scheduler can be limited by weekday using `DaysMask`.
 - Scheduler can be limited by time window using `Start` and `End` (default 00:00:00–24:00:00).
 - Scheduler can repeat multiple times per day using `IntervalSec` within the `Start`–`End` window.
-- **Two lines cannot have overlapping schedules on common active days** — the API rejects with `400`.
+- **Lines cannot have overlapping schedules on common active days** — the API rejects with `400`.
 - The API also rejects a schedule save if it would turn a line on immediately while another line is already active.
 - If a line is manually turned on before a schedule window starts, it remains on during the window and is forced off when that schedule window ends.
 - As a safety net, runtime arbitration always suppresses all but one active line.

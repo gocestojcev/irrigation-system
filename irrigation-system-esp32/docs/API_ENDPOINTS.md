@@ -1,5 +1,9 @@
 # API Endpoints
 
+LAN HTTP API served by ESP32 firmware. Cloud API mirrors these shapes under `/devices/{deviceId}/…` (see [IMPLEMENTATION_PLAN.md](../../irrigation-system-aws/IMPLEMENTATION_PLAN.md)).
+
+**See also:** [MOBILE_API.md](./MOBILE_API.md) · [FIRMWARE_DYNAMIC_LINES.md](./FIRMWARE_DYNAMIC_LINES.md)
+
 Base URL: `http://<esp32-ip>` (port 80)
 
 ## Common Notes
@@ -11,7 +15,7 @@ Base URL: `http://<esp32-ip>` (port 80)
 
 ## 0) GET /status
 
-Returns current runtime state for both lines, including active source.
+Returns current runtime state for all lines, including active source.
 
 - Success response (`200`):
 
@@ -19,11 +23,14 @@ Returns current runtime state for both lines, including active source.
 {
 	"Epoch": 1711824150,
 	"Time": "19:42:30",
+	"LineCount": 3,
 	"Line1": {"Value": "on", "Source": "scheduled"},
-	"Line2": {"Value": "off", "Source": "off"}
+	"Line2": {"Value": "off", "Source": "off"},
+	"Line3": {"Value": "off", "Source": "off"}
 }
 ```
 
+- `LineCount`: number of lines exposed by firmware (mobile app uses `1..LineCount` for schedules and controls).
 - `Source` values in `/status`:
 	- `manual` = currently on due to manual state
 	- `scheduled` = currently on due to schedule

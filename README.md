@@ -29,5 +29,9 @@ Default mobile mode is **LAN**. If the device is unreachable, the app offers **S
 |-----|----------|
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Flash, monitor, mobile dev, AWS deploy |
 | [IMPLEMENTATION_PLAN.md](irrigation-system-aws/IMPLEMENTATION_PLAN.md) | Cloud integration plan and phase status |
+| [irrigation-system-esp32/README.md](irrigation-system-esp32/README.md) | Firmware quick start and doc index |
+| [API_ENDPOINTS.md](irrigation-system-esp32/docs/API_ENDPOINTS.md) | LAN HTTP endpoint reference |
+| [MOBILE_API.md](irrigation-system-esp32/docs/MOBILE_API.md) | LAN API integration guide |
 | [iot-implementation.md](irrigation-system-esp32/docs/iot-implementation.md) | ESP32 MQTT/shadow firmware |
+| [FIRMWARE_DYNAMIC_LINES.md](irrigation-system-esp32/docs/FIRMWARE_DYNAMIC_LINES.md) | Dynamic `LineCount` / adding lines |
 | [irrigation-system-mobile/README.md](irrigation-system-mobile/README.md) | Expo Go, EAS builds, app usage |

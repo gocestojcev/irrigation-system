@@ -128,7 +128,7 @@ While on the same LAN:
 - `GET http://<device-ip>/schedule/1`
 - `POST http://<device-ip>/line/1` body `{"Value":"on"}`
 
-See [irrigation-system-esp32/API_ENDPOINTS.md](irrigation-system-esp32/API_ENDPOINTS.md).
+See [API_ENDPOINTS.md](irrigation-system-esp32/docs/API_ENDPOINTS.md), [MOBILE_API.md](irrigation-system-esp32/docs/MOBILE_API.md), and [FIRMWARE_DYNAMIC_LINES.md](irrigation-system-esp32/docs/FIRMWARE_DYNAMIC_LINES.md).
 
 ---
 
@@ -230,5 +230,6 @@ Run with ESP32 powered, flashed, and dev stack deployed.
 ## Related docs
 
 - [IMPLEMENTATION_PLAN.md](irrigation-system-aws/IMPLEMENTATION_PLAN.md) — architecture and phase status
+- [API_ENDPOINTS.md](irrigation-system-esp32/docs/API_ENDPOINTS.md) — LAN HTTP reference
 - [iot-implementation.md](irrigation-system-esp32/docs/iot-implementation.md) — ESP32 MQTT/shadow details
 - [EXPO_TUNNEL.md](irrigation-system-mobile/docs/EXPO_TUNNEL.md) — tunnel troubleshooting

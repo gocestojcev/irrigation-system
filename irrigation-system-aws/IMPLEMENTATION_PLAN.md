@@ -24,10 +24,6 @@ Dev **end-to-end vertical slice validated** on hardware (`irrigation-dev-001`):
 | IAM least-privilege, SNS alarms, dashboards, cert rotation runbook | Phase 5 |
 | Optional: `scripts/smoke-test.ts` | Automation |
 
-## Continue tomorrow (priority order)
-
-**Superseded** — use [DEPLOYMENT.md](../DEPLOYMENT.md) for operational steps. Historical checklist below.
-
 ### Dev environment reference
 
 | Item | Value |
@@ -42,29 +38,13 @@ Dev **end-to-end vertical slice validated** on hardware (`irrigation-dev-001`):
 | Test user | `goce.stojcev@gmail.com` (sub `63c4f802-e0c1-7033-af34-0af61a21ef9f`, role **owner**) |
 | Resource tag | `owner=irrigation-system` |
 
-### Vertical slice checklist
+### Related docs
 
-Run in **dev** with ESP32 powered, on WiFi, and flashed with current firmware:
-
-- [x] Serial: WiFi connected, `[IOT] Client initialized for thing irrigation-dev-001`, stable MQTT
-- [x] Mobile: Cloud mode → sign in → device ID `irrigation-dev-001` → toggle lines
-- [x] Mobile: LAN mode default; Cloud offered when LAN unreachable
-- [x] API: shadow reported status/schedules; commands applied via delta
-- [x] Shadow heartbeat updates status every ~60s when idle
-- [x] Schedules edit/save (LAN + Cloud)
-- [x] Logs view/clear (Cloud via MQTT ingest + backfill on connect)
-
-**Success metrics:** P50 &lt; 2s, P95 &lt; 5s, zero duplicate execution on retried `commandId`.
-
-### After vertical slice passes
-
-Completed 2026-05-25. Next: prod deploy and Phase 5 ops (see [Status](#status-2026-05-25)).
-
-- [iot-implementation.md](../irrigation-system-esp32/docs/iot-implementation.md)
-- [API_ENDPOINTS.md](../irrigation-system-esp32/API_ENDPOINTS.md)
-- [API_ENDPOINTS.md](../irrigation-system-mobile/docs/API_ENDPOINTS.md)
-- [irrigation-api.v1.yaml](./openapi/irrigation-api.v1.yaml)
-- [schemas/](./schemas/)
+- [iot-implementation.md](../irrigation-system-esp32/docs/iot-implementation.md) — firmware MQTT/shadow
+- [API_ENDPOINTS.md](../irrigation-system-esp32/docs/API_ENDPOINTS.md) — LAN HTTP reference
+- [MOBILE_API.md](../irrigation-system-esp32/docs/MOBILE_API.md) — LAN integration guide
+- [irrigation-api.v1.yaml](./openapi/irrigation-api.v1.yaml) — cloud OpenAPI
+- [schemas/](./schemas/) — JSON schemas
 
 ## Objective
 Enable secure remote irrigation control using AWS IoT + API Gateway + Lambda while preserving the existing mobile data shapes and keeping device-side safety authoritative.
@@ -252,9 +232,9 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | Fixture runners for local handler tests | Done |
 | `GET /logs` backed by DynamoDB | Done |
 | Prod Cognito pool configured | Not done (`REPLACE_PROD_POOL_ID`) |
-| Verified deploy + smoke test in `dev` | Deploy done; **E2E smoke test pending** |
+| Verified deploy + smoke test in `dev` | **Done** (E2E verified 2026-05-25) |
 
-**Acceptance criteria:** met in code; live vertical slice with flashed ESP32 still required.
+**Acceptance criteria:** met in dev on `irrigation-dev-001`.
 
 ### Phase 2.5: Device Onboarding — **Done (dev)**
 | Deliverable | Status |
@@ -266,11 +246,11 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | `npm run seed:access` for test user + device | Done |
 | Formal written runbook | Optional — script output + table above |
 
-### Phase 3: ESP32 AWS IoT Integration — **Code done, E2E pending**
+### Phase 3: ESP32 AWS IoT Integration — **Done (E2E verified)**
 | Deliverable | Status |
 |-------------|--------|
 | MQTT/TLS client (PubSubClient + WiFiClientSecure) | Done |
-| Shadow delta subscription on `state.desired.command` | Done |
+| Shadow delta subscription on `state.command` | Done |
 | Map commands to `line` / `schedule` / `logs` logic | Done (`device_api.cpp`) |
 | Publish `reported` shadow + heartbeat (60s) | Done |
 | Publish `command-result` to MQTT topic | Done |
@@ -278,9 +258,9 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | `commandId` idempotency store (NVS) | Done |
 | Reconnect with backoff (Wi‑Fi + MQTT) | Done |
 | WiFi via NVS / `secrets/wifi_secrets.h` | Done |
-| **Flash firmware + verify on hardware** | **Not done** |
+| Flash firmware + verify on hardware | Done |
 
-**Acceptance criteria:** vertical slice works in `dev` — see [Continue tomorrow](#continue-tomorrow-priority-order).
+**Acceptance criteria:** vertical slice works in `dev` — verified 2026-05-25. See [DEPLOYMENT.md](../DEPLOYMENT.md).
 
 ### Phase 3b: Mobile Cloud Integration — **Done**
 | Deliverable | Status |
@@ -309,15 +289,9 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | Dashboards (latency, offline devices) | Not started |
 | CI/CD deploy pipeline | Not started |
 
-## Vertical Slice (current priority)
+## Vertical Slice — **Complete (2026-05-25)**
 
-See [Continue tomorrow](#continue-tomorrow-priority-order) for the step-by-step checklist.
-
-1. ~~Register one IoT Thing + generate cert (Phase 2.5).~~ Done — `irrigation-dev-001`.
-2. ~~Seed `device_user_access_dev` for Cognito test user.~~ Done.
-3. **Flash ESP32** with `secrets/iot_secrets.h` + `secrets/wifi_secrets.h`.
-4. **Redeploy dev** if not done since commit `917c549`.
-5. Run vertical slice: `POST …/line/1` → ESP executes → `GET …/commands/{id}` = applied → `GET …/status` updated.
+Validated on `irrigation-dev-001`: cloud line toggles, schedules, logs, LAN-first mobile with Cloud fallback. Operational steps: [DEPLOYMENT.md](../DEPLOYMENT.md).
 
 ## Repository Tasks
 
@@ -343,7 +317,7 @@ See [Continue tomorrow](#continue-tomorrow-priority-order) for the step-by-step 
 | Reported state + command-result publish | Done |
 | Shadow heartbeat + ISO timestamps | Done |
 | WiFi secrets pattern | Done |
-| **Hardware E2E validation** | **Todo** |
+| **Hardware E2E validation** | **Done** |
 
 ### `irrigation-system-mobile/`
 | Task | Status |

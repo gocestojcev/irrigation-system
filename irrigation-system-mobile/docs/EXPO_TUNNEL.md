@@ -9,7 +9,7 @@ Use this when **Expo Go** fails on the same Wi‑Fi (`failed to download remote 
 This project includes `@expo/ngrok` (required by Expo).
 
 ```powershell
-cd C:\projects\irrigation-system\esp32-mobile
+cd C:\goce.stojcev\projects\irrigation-system\irrigation-system-mobile
 npm install
 npm run start:tunnel
 ```
@@ -79,7 +79,7 @@ Expo’s shared ngrok can hit limits. Use a **free ngrok account**:
 **Terminal 1 — Metro (LAN, no tunnel flag):**
 
 ```powershell
-cd C:\projects\irrigation-system\esp32-mobile
+cd C:\goce.stojcev\projects\irrigation-system\irrigation-system-mobile
 npx expo start -c --lan
 ```
 
