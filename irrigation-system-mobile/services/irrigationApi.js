@@ -1,13 +1,25 @@
 import axios from 'axios';
 
-import { getAccessToken } from './auth';
+import { getIdToken } from './auth';
 import { normalizeCloudBaseUrl } from './config';
 
 const COMMAND_POLL_INTERVAL_MS = 800;
 const COMMAND_TIMEOUT_MS = 120_000;
 
+export function assertCommandSucceeded(result) {
+  if (!result || result.status === 'applied') {
+    return result;
+  }
+
+  const message = result.errorMessage || result.errorCode || `Command ${result.status || 'failed'}`;
+  const error = new Error(message);
+  error.code = result.errorCode || 'COMMAND_FAILED';
+  error.commandStatus = result.status;
+  throw error;
+}
+
 async function cloudHeaders() {
-  const token = await getAccessToken();
+  const token = await getIdToken();
   if (!token) throw new Error('Not signed in');
   return { Authorization: `Bearer ${token}` };
 }
@@ -41,7 +53,7 @@ export function createIrrigationApi({ apiMode, serverIP, deviceId, cloudBaseUrl 
       validateStatus: (status) => status === 202 || status === 200,
     });
     if (response.status === 202 && response.data?.commandId) {
-      return pollCommand(response.data.commandId);
+      return assertCommandSucceeded(await pollCommand(response.data.commandId));
     }
     return response.data;
   }

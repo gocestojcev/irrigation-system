@@ -27,9 +27,10 @@ export async function setDeviceId(value) {
   await AsyncStorage.setItem(KEYS.deviceId, value);
 }
 
-export async function getApiMode() {
+export async function getApiMode(fallback = 'lan') {
   const value = await AsyncStorage.getItem(KEYS.apiMode);
-  return value === 'lan' ? 'lan' : 'cloud';
+  if (value === 'lan' || value === 'cloud') return value;
+  return fallback;
 }
 
 export async function setApiMode(value) {

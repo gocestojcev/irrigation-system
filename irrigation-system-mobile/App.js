@@ -7,6 +7,15 @@ import { getLineDisplayName, getLineMeta } from './services/lineLabels';
 import { LineAvatar } from './components/LineAvatar';
 import { irrigationConfig } from './services/config';
 import { createIrrigationApi } from './services/irrigationApi';
+import {
+  formatScheduleWindow,
+  getNextScheduledRun,
+  getScheduleForDisplay,
+  hoursMinutesToTimeString,
+  localTimeToUtcTime,
+  scheduleFromApiToLocal,
+  scheduleToDraft,
+} from './services/scheduleTime';
 import { getApiMode, getCloudBaseUrl, getCloudUsername, getDeviceId, getServerIP, setApiMode as persistApiMode, setCloudBaseUrl as persistCloudBaseUrl, setDeviceId as persistDeviceId, setServerIP as persistServerIP } from './services/storage';
 import { isSignedIn as checkSignedIn, signIn as cognitoSignIn, signOut as cognitoSignOut } from './services/auth';
 
@@ -24,7 +33,7 @@ export default function App() {
   const [serverIP, setServerIPState] = useState(irrigationConfig.defaultServerIp);
   const [deviceId, setDeviceIdState] = useState(irrigationConfig.defaultDeviceId);
   const [cloudBaseUrl, setCloudBaseUrlState] = useState(irrigationConfig.defaultCloudBaseUrl);
-  const [apiMode, setApiModeState] = useState('cloud');
+  const [apiMode, setApiModeState] = useState('lan');
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -69,6 +78,25 @@ export default function App() {
     const normalized = value.trim().replace(/\/+$/, '');
     setCloudBaseUrlState(normalized);
     persistCloudBaseUrl(normalized).catch(() => {});
+  };
+
+  const switchToCloudMode = async () => {
+    setApiModeState('cloud');
+    await persistApiMode('cloud');
+    consecutiveFailuresRef.current = 0;
+    nextAllowedFetchAtRef.current = 0;
+    setApiAvailable(true);
+  };
+
+  const promptSwitchToCloud = () => {
+    Alert.alert(
+      'Switch to Cloud mode?',
+      'The device is not reachable on your local network. Cloud mode works over the internet and requires sign-in.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Switch to Cloud', onPress: () => { switchToCloudMode().catch(() => {}); } },
+      ],
+    );
   };
 
   useEffect(() => {
@@ -129,15 +157,6 @@ export default function App() {
     }
   };
 
-  const formatTimeDisplay = (value) => {
-    if (typeof value !== 'string') return '--:--';
-    if (value === '24:00:00') return '24:00';
-
-    const parts = value.split(':');
-    if (parts.length < 2) return value;
-    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
-  };
-
   const parseLogsResponse = (data) => {
     const rawLogs = Array.isArray(data?.Logs) ? data.Logs : [];
     return rawLogs.map((item, index) => ({
@@ -166,130 +185,6 @@ export default function App() {
     return 'No active days';
   };
 
-  const buildScheduleWindow = (schedule) => {
-    const startSeconds = parseHhMmSsToSeconds(schedule?.Start);
-    const endSeconds = parseHhMmSsToSeconds(schedule?.End);
-
-    if (startSeconds === null || endSeconds === null) {
-      return null;
-    }
-
-    const windowEndSeconds = endSeconds <= startSeconds ? endSeconds + 86400 : endSeconds;
-    return {
-      startSeconds,
-      endSeconds,
-      windowEndSeconds,
-      crossesMidnight: windowEndSeconds > 86400,
-      isFullDay: startSeconds === 0 && endSeconds === 86400,
-    };
-  };
-
-  const formatScheduleWindow = (schedule) => {
-    const window = buildScheduleWindow(schedule);
-    if (!window) return '--:-- → --:--';
-
-    if (window.isFullDay) {
-      return '00:00 → 24:00';
-    }
-
-    return `${formatTimeDisplay(schedule?.Start)} → ${formatTimeDisplay(schedule?.End)}${window.crossesMidnight ? ' (overnight)' : ''}`;
-  };
-
-  const findNextScheduledRunDate = (schedule, referenceDate = new Date()) => {
-    if (!schedule?.Enabled || !schedule?.Start || !schedule?.DaysMask) {
-      return null;
-    }
-
-    const window = buildScheduleWindow(schedule);
-    if (!window) {
-      return null;
-    }
-
-    const intervalSeconds = Number.isFinite(schedule?.IntervalSec) ? Math.max(0, Math.round(schedule.IntervalSec)) : 0;
-
-    for (let offset = -1; offset <= 7; offset += 1) {
-      const dayStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate() + offset, 0, 0, 0, 0);
-      const dayBit = dayStart.getDay() === 0 ? 1 : Math.pow(2, dayStart.getDay() - 1);
-      if ((schedule.DaysMask & dayBit) === 0) {
-        continue;
-      }
-
-      const startAt = new Date(dayStart.getTime() + (window.startSeconds * 1000));
-      const endAt = new Date(dayStart.getTime() + (window.windowEndSeconds * 1000));
-
-      if (intervalSeconds === 0) {
-        if (startAt > referenceDate) {
-          return startAt;
-        }
-        continue;
-      }
-
-      for (let runMs = startAt.getTime(); runMs < endAt.getTime(); runMs += intervalSeconds * 1000) {
-        if (runMs > referenceDate.getTime()) {
-          return new Date(runMs);
-        }
-      }
-    }
-
-    return null;
-  };
-
-  const getNextScheduledRun = (schedule) => {
-    const nextRun = findNextScheduledRunDate(schedule);
-    if (!nextRun) return 'No upcoming runs';
-
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const nextDayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
-    const timeText = `${String(nextRun.getHours()).padStart(2, '0')}:${String(nextRun.getMinutes()).padStart(2, '0')}`;
-
-    if (nextRun >= todayStart && nextRun < tomorrowStart) {
-      return `Today at ${timeText}`;
-    }
-
-    if (nextRun >= tomorrowStart && nextRun < nextDayStart) {
-      return `Tomorrow at ${timeText}`;
-    }
-
-    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][nextRun.getDay()];
-    return `${dayName} at ${timeText}`;
-  };
-
-  const timeStringToHoursMinutes = (timeStr) => {
-    const parts = timeStr.split(':');
-    return { hours: Number.parseInt(parts[0] || '0', 10), minutes: Number.parseInt(parts[1] || '0', 10) };
-  };
-
-  const hoursMinutesToTimeString = (hours, minutes) => {
-    const h = String(hours).padStart(2, '0');
-    const m = String(minutes).padStart(2, '0');
-    return `${h}:${m}:00`;
-  };
-
-  const scheduleToDraft = (item) => {
-    const startTime = timeStringToHoursMinutes(item?.Start || '08:00:00');
-    const isEndOfDay = (item?.End || '24:00:00') === '24:00:00';
-    const endTime = timeStringToHoursMinutes(isEndOfDay ? '00:00:00' : (item?.End || '24:00:00'));
-    return {
-      enabled: !!item?.Enabled,
-      start: item?.Start || '08:00:00',
-      startHours: String(startTime.hours),
-      startMinutes: String(startTime.minutes),
-      end: item?.End || '24:00:00',
-      endHours: String(endTime.hours),
-      endMinutes: String(endTime.minutes),
-      endIsEndOfDay: isEndOfDay,
-      durationMinutes: String(Math.max(1, Math.round((item?.Duration || 60) / 60))),
-      intervalHours: String(
-        Number.isFinite(item?.IntervalSec)
-          ? (Math.round(item.IntervalSec) === 0 ? 0 : Math.max(1, Math.round(item.IntervalSec / 3600)))
-          : 0
-      ),
-      daysMask: Number.isFinite(item?.DaysMask) ? item.DaysMask : 127,
-    };
-  };
-
   const updateScheduleDraft = (lineId, changes) => {
     setScheduleDrafts((prev) => ({
       ...prev,
@@ -309,55 +204,6 @@ export default function App() {
     const nextMask = currentMask & bit ? currentMask & ~bit : currentMask | bit;
     updateScheduleDraft(lineId, { daysMask: nextMask });
   };
-
-  const isValidTimeValue = (value) => /^(([01]\d|2[0-3]):[0-5]\d:[0-5]\d|24:00:00)$/.test(value);
-
-  const parseHhMmSsToSeconds = (value) => {
-    if (!isValidTimeValue(value)) {
-      return null;
-    }
-
-    if (value === '24:00:00') {
-      return 86400;
-    }
-
-    const [hours, minutes, seconds] = value.split(':').map((part) => Number.parseInt(part, 10));
-    return (hours * 3600) + (minutes * 60) + seconds;
-  };
-
-  const secondsToHhMmSs = (totalSeconds, { preserveMidnightBoundary = false } = {}) => {
-    if (preserveMidnightBoundary && totalSeconds > 0 && totalSeconds % 86400 === 0) {
-      return '24:00:00';
-    }
-
-    const normalized = ((totalSeconds % 86400) + 86400) % 86400;
-    const hours = Math.floor(normalized / 3600);
-    const minutes = Math.floor((normalized % 3600) / 60);
-    const seconds = normalized % 60;
-    return [hours, minutes, seconds].map((x) => String(x).padStart(2, '0')).join(':');
-  };
-
-  const localTimeToUtcTime = (localTime) => {
-    const seconds = parseHhMmSsToSeconds(localTime);
-    if (seconds === null) return localTime;
-
-    const offsetMinutes = new Date().getTimezoneOffset();
-    return secondsToHhMmSs(seconds + (offsetMinutes * 60), { preserveMidnightBoundary: true });
-  };
-
-  const utcTimeToLocalTime = (utcTime) => {
-    const seconds = parseHhMmSsToSeconds(utcTime);
-    if (seconds === null) return utcTime;
-
-    const offsetMinutes = new Date().getTimezoneOffset();
-    return secondsToHhMmSs(seconds - (offsetMinutes * 60), { preserveMidnightBoundary: true });
-  };
-
-  const scheduleFromApiToLocal = (item) => ({
-    ...item,
-    Start: utcTimeToLocalTime(item?.Start || '00:00:00'),
-    End: utcTimeToLocalTime(item?.End || '24:00:00'),
-  });
 
   const saveSchedule = async (lineId) => {
     const draft = scheduleDrafts[lineId];
@@ -450,7 +296,9 @@ export default function App() {
       Alert.alert('Saved', `Schedule for ${getLineDisplayName(lineId)} updated.`);
     } catch (error) {
       console.error('saveSchedule error:', error?.message || error);
-      const errorMessage = error?.response?.data?.error || `Failed to save schedule for ${getLineDisplayName(lineId)}`;
+      const errorMessage = error?.message
+        || error?.response?.data?.error
+        || `Failed to save schedule for ${getLineDisplayName(lineId)}`;
       Alert.alert('Save failed', errorMessage);
     } finally {
       setSavingScheduleLine(null);
@@ -589,8 +437,20 @@ export default function App() {
       setApiAvailable(false);
       if (error?.response?.status === 404) {
         Alert.alert(
-          'Endpoint not found',
-          'Server is reachable but /status or /schedule/{n} is missing.'
+          apiMode === 'cloud' ? 'Device not found' : 'Endpoint not found',
+          apiMode === 'cloud'
+            ? 'No device shadow yet. Check device ID and wait for the ESP32 to connect.'
+            : 'Server is reachable but /status or /schedule/{n} is missing.'
+        );
+      } else if (error?.response?.status === 502) {
+        Alert.alert(
+          'Device data invalid',
+          'Cloud could not read the device shadow. Wait for the ESP32 to sync, then retry.'
+        );
+      } else if (error?.response?.status === 401 || error?.response?.status === 403) {
+        Alert.alert(
+          'Cloud access denied',
+          'Sign in again or check that your account has access to this device.'
         );
       } else if (isWeb && !error?.response) {
         Alert.alert(
@@ -627,7 +487,7 @@ export default function App() {
       setTimeout(() => fetchAllData({ force: true }), 500);
     } catch (error) {
       console.error('toggleLine error:', error?.message || error);
-      Alert.alert('Error', `Failed to toggle ${getLineDisplayName(lineId)}`);
+      Alert.alert('Error', error?.message || `Failed to toggle ${getLineDisplayName(lineId)}`);
     } finally {
       setLoading(false);
     }
@@ -641,7 +501,7 @@ export default function App() {
       setLogs([]);
     } catch (error) {
       console.error('clearLogs error:', error?.message || error);
-      Alert.alert('Error', 'Failed to clear logs');
+      Alert.alert('Error', error?.message || 'Failed to clear logs');
     } finally {
       setLoading(false);
     }
@@ -729,22 +589,25 @@ export default function App() {
           <Text style={styles.sectionTitle}>Line Schedules</Text>
           <View style={styles.scheduleCard}>
             <Text style={styles.scheduleDate}>Daily schedule (local time)</Text>
-            {schedule.map((item) => (
+            {schedule.map((item) => {
+              const displayItem = getScheduleForDisplay(item, { scheduleDirty, scheduleDrafts });
+              return (
               <View key={`schedule-line-${item.line}`} style={styles.scheduleItemRow}>
                 <View style={styles.scheduleItemHeader}>
                   <LineAvatar lineId={item.line} size={40} />
                   <Text style={styles.scheduleItemLine}>{getLineDisplayName(item.line)}</Text>
                 </View>
                 <Text style={styles.scheduleItemMeta}>
-                  {formatScheduleWindow(item)} • {Math.round((item.Duration || 0) / 60)} min {item.Enabled ? '' : '(disabled)'}
+                  {formatScheduleWindow(displayItem)} • {Math.round((displayItem.Duration || 0) / 60)} min {displayItem.Enabled ? '' : '(disabled)'}
                 </Text>
                 <Text style={styles.scheduleItemDays}>
-                  Repeat: {item.IntervalSec > 0 ? `every ${Math.max(1, Math.round(item.IntervalSec / 3600))}h within the window` : 'once per day at window start'}
+                  Repeat: {displayItem.IntervalSec > 0 ? `every ${Math.max(1, Math.round(displayItem.IntervalSec / 3600))}h within the window` : 'once per day at window start'}
                 </Text>
-                <Text style={styles.scheduleItemDays}>{formatScheduleDays(item)}</Text>
-                <Text style={styles.scheduleItemNext}>📅 Next: {getNextScheduledRun(item)}</Text>
+                <Text style={styles.scheduleItemDays}>{formatScheduleDays(displayItem)}</Text>
+                <Text style={styles.scheduleItemNext}>📅 Next: {getNextScheduledRun(displayItem)}</Text>
               </View>
-            ))}
+              );
+            })}
           </View>
         </View>
       )}
@@ -885,7 +748,9 @@ export default function App() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshSchedules} />}
     >
       {(Array.isArray(schedule) ? schedule : []).map((item) => {
-        const draft = scheduleDrafts[item.line] || scheduleToDraft(item);
+        const draft = scheduleDirty[item.line] && scheduleDrafts[item.line]
+          ? scheduleDrafts[item.line]
+          : scheduleToDraft(item);
 
         return (
           <View key={`schedule-editor-${item.line}`} style={styles.section}>
@@ -1040,6 +905,11 @@ export default function App() {
     >
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Activity Log</Text>
+        {apiMode === 'cloud' && (
+          <Text style={styles.scheduleInfo}>
+            Cloud logs sync from the device when it is online over MQTT.
+          </Text>
+        )}
         <TouchableOpacity style={styles.clearLogsButton} onPress={clearLogs} disabled={loading}>
           <Text style={styles.clearLogsButtonText}>Clear Logs</Text>
         </TouchableOpacity>
@@ -1135,11 +1005,20 @@ export default function App() {
       {!apiAvailable && (
         <View style={styles.offlineBanner}>
           <Text style={styles.offlineText}>
-            ⚠️ Offline: API unavailable. Check server IP, Wi-Fi, and device power.
+            {apiMode === 'cloud'
+              ? '⚠️ Cloud API unavailable. Check sign-in, device ID, and that the ESP32 is online.'
+              : '⚠️ Device not reachable on LAN. Check server IP, Wi-Fi, and device power—or switch to Cloud mode.'}
           </Text>
-          <TouchableOpacity style={styles.tryNowButton} onPress={() => fetchAllData({ force: true })}>
-            <Text style={styles.tryNowText}>↻ Try now</Text>
-          </TouchableOpacity>
+          <View style={styles.offlineActions}>
+            <TouchableOpacity style={styles.tryNowButton} onPress={() => fetchAllData({ force: true })}>
+              <Text style={styles.tryNowText}>↻ Try LAN</Text>
+            </TouchableOpacity>
+            {apiMode === 'lan' && (
+              <TouchableOpacity style={styles.cloudSwitchButton} onPress={promptSwitchToCloud}>
+                <Text style={styles.cloudSwitchButtonText}>☁ Switch to Cloud</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       )}
 
@@ -1741,14 +1620,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
   },
+  offlineActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   tryNowButton: {
-    alignSelf: 'center',
     backgroundColor: '#D32F2F',
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 6,
   },
   tryNowText: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  cloudSwitchButton: {
+    marginLeft: 8,
+    backgroundColor: '#1565C0',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+  },
+  cloudSwitchButtonText: {
     color: '#FFF',
     fontWeight: '700',
     fontSize: 13,

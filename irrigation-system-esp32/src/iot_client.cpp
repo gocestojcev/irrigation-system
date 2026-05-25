@@ -19,6 +19,8 @@
 #define IOT_DEVICE_PRIVATE_KEY ""
 #endif
 
+void notifyLogEvent(int line, bool started, uint8_t source, uint32_t durationSec, uint32_t epoch);
+
 namespace {
 
 static const char AWS_ROOT_CA[] PROGMEM = R"EOF(
@@ -55,10 +57,37 @@ unsigned long lastShadowHeartbeatMs = 0;
 
 String deltaTopic;
 String shadowUpdateTopic;
+String shadowRejectedTopic;
 String commandResultTopic;
 String logTopic;
 
 bool mqttReady = false;
+bool mqttTransportConfigured = false;
+bool initialShadowPublished = false;
+
+void onMqttMessage(char *topic, byte *payload, unsigned int length);
+
+void configureMqttTransport() {
+  if (mqttTransportConfigured) return;
+
+  net.setCACert(AWS_ROOT_CA);
+  net.setCertificate(IOT_DEVICE_CERT);
+  net.setPrivateKey(IOT_DEVICE_PRIVATE_KEY);
+  net.setTimeout(20000);
+
+  mqtt.setServer(IOT_ENDPOINT, 8883);
+  mqtt.setCallback(onMqttMessage);
+  mqtt.setBufferSize(8192);
+  mqtt.setKeepAlive(60);
+
+  mqttTransportConfigured = true;
+}
+
+void flushMqtt(unsigned int iterations = 8) {
+  for (unsigned int i = 0; i < iterations; i++) {
+    mqtt.loop();
+  }
+}
 
 bool secretsConfigured() {
   return strlen(IOT_THING_NAME) > 0 && strlen(IOT_ENDPOINT) > 0
@@ -91,7 +120,15 @@ String sourceNameFromCode(uint8_t source) {
 
 void publishJson(const char *topic, const String &payload, bool retained = false) {
   if (!mqtt.connected()) return;
-  mqtt.publish(topic, payload.c_str(), retained);
+  if (!mqtt.publish(topic, payload.c_str(), retained)) {
+    Serial.print("[IOT] Publish failed (");
+    Serial.print(payload.length());
+    Serial.print(" bytes) topic=");
+    Serial.println(topic);
+    return;
+  }
+
+  flushMqtt();
 }
 
 void publishCommandResult(
@@ -120,7 +157,7 @@ void publishCommandResult(
   publishJson(commandResultTopic.c_str(), payload);
 }
 
-void publishReportedStateOnly(bool retain = false) {
+bool publishReportedStateOnly(bool retain = false) {
   JsonDocument doc;
   JsonObject reported = doc["state"]["reported"].to<JsonObject>();
   reported["schemaVersion"] = "1.0";
@@ -134,9 +171,26 @@ void publishReportedStateOnly(bool retain = false) {
   deserializeJson(scheduleDoc, buildAllSchedulesJson());
   reported["schedule"] = scheduleDoc.as<JsonObject>();
 
+  if (doc.overflowed()) {
+    Serial.println("[IOT] Shadow JSON overflow while building reported state");
+    return false;
+  }
+
   String payload;
   serializeJson(doc, payload);
-  publishJson(shadowUpdateTopic.c_str(), payload, retain);
+  if (!mqtt.connected()) return false;
+  if (!mqtt.publish(shadowUpdateTopic.c_str(), payload.c_str(), retain)) {
+    Serial.print("[IOT] Shadow publish failed (");
+    Serial.print(payload.length());
+    Serial.println(" bytes)");
+    return false;
+  }
+
+  flushMqtt();
+  Serial.print("[IOT] Shadow reported published (");
+  Serial.print(payload.length());
+  Serial.println(" bytes)");
+  return true;
 }
 
 void publishReportedShadow(const String &commandId, const char *commandStatus) {
@@ -232,43 +286,95 @@ void onMqttMessage(char *topic, byte *payload, unsigned int length) {
     message += (char)payload[i];
   }
 
-  if (String(topic) != deltaTopic) return;
+  const String topicStr(topic);
+  if (topicStr == shadowRejectedTopic) {
+    Serial.print("[IOT] Shadow rejected: ");
+    Serial.println(message);
+    return;
+  }
+
+  if (topicStr != deltaTopic) return;
 
   JsonDocument doc;
-  if (deserializeJson(doc, message)) return;
+  if (deserializeJson(doc, message)) {
+    Serial.println("[IOT] Shadow delta JSON parse failed");
+    return;
+  }
 
-  JsonObject desired = doc["state"]["desired"].as<JsonObject>();
-  if (desired.isNull()) return;
+  JsonObject state = doc["state"].as<JsonObject>();
+  if (state.isNull()) return;
 
-  JsonObject command = desired["command"].as<JsonObject>();
+  JsonObject command = state["command"].as<JsonObject>();
+  if (command.isNull()) {
+    JsonObject desired = state["desired"].as<JsonObject>();
+    if (!desired.isNull()) command = desired["command"].as<JsonObject>();
+  }
   if (command.isNull()) return;
 
+  Serial.println("[IOT] Shadow delta command received");
   handleCommandEnvelope(command);
+}
+
+void syncStoredLogsToCloud() {
+  if (!mqtt.connected() || logCount <= 0) return;
+
+  const int limit = min(logCount, MAX_LOG_ENTRIES);
+  Serial.print("[IOT] Syncing ");
+  Serial.print(limit);
+  Serial.println(" stored log entries");
+
+  for (int i = 0; i < limit; i++) {
+    const int newestIdx = (logHead + logCount - 1 - i + MAX_LOG_ENTRIES) % MAX_LOG_ENTRIES;
+    const ActivityLogEntry &entry = activityLogs[newestIdx];
+    ::notifyLogEvent(
+      (int)entry.line,
+      entry.event == 1,
+      entry.source,
+      entry.durationSec,
+      entry.epoch
+    );
+    flushMqtt(2);
+  }
 }
 
 bool connectMqtt() {
   if (!secretsConfigured()) return false;
   if (WiFi.status() != WL_CONNECTED) return false;
+  if (mqtt.connected()) return true;
 
-  net.setCACert(AWS_ROOT_CA);
-  net.setCertificate(IOT_DEVICE_CERT);
-  net.setPrivateKey(IOT_DEVICE_PRIVATE_KEY);
+  configureMqttTransport();
 
-  mqtt.setServer(IOT_ENDPOINT, 8883);
-  mqtt.setCallback(onMqttMessage);
-  mqtt.setBufferSize(4096);
+  mqtt.disconnect();
+  net.stop();
 
-  String clientId = String("irrigation-") + readSecret(IOT_THING_NAME);
+  String clientId = readSecret(IOT_THING_NAME);
   if (!mqtt.connect(clientId.c_str())) {
+    Serial.print("[IOT] MQTT connect failed, state=");
+    Serial.println(mqtt.state());
     return false;
   }
 
-  mqtt.subscribe(deltaTopic.c_str());
+  Serial.println("[IOT] MQTT connected");
+  flushMqtt();
+
+  if (!mqtt.subscribe(deltaTopic.c_str())) {
+    Serial.println("[IOT] Delta subscribe failed");
+  }
+  if (!mqtt.subscribe(shadowRejectedTopic.c_str())) {
+    Serial.println("[IOT] Shadow rejected subscribe failed");
+  }
+  flushMqtt();
+
   mqttReady = true;
   reconnectBackoffMs = 1000;
   lastShadowHeartbeatMs = millis();
 
-  publishReportedStateOnly(true);
+  const bool retain = !initialShadowPublished;
+  if (publishReportedStateOnly(retain)) {
+    initialShadowPublished = true;
+  }
+
+  syncStoredLogsToCloud();
 
   return true;
 }
@@ -301,15 +407,27 @@ void setupIotClient() {
   String thingName = readSecret(IOT_THING_NAME);
   deltaTopic = "$aws/things/" + thingName + "/shadow/update/delta";
   shadowUpdateTopic = "$aws/things/" + thingName + "/shadow/update";
+  shadowRejectedTopic = "$aws/things/" + thingName + "/shadow/update/rejected";
   commandResultTopic = "irrigation/devices/" + thingName + "/command-result";
   logTopic = "irrigation/devices/" + thingName + "/logs";
 
   mqtt.setClient(net);
+  configureMqttTransport();
   Serial.println("[IOT] Client initialized for thing " + thingName);
 }
 
 void iotClientLoop() {
   if (!secretsConfigured()) return;
+
+  static bool wasConnected = false;
+  const bool connected = mqtt.connected();
+  if (wasConnected && !connected) {
+    Serial.print("[IOT] MQTT disconnected, state=");
+    Serial.println(mqtt.state());
+    mqttReady = false;
+  }
+  wasConnected = connected;
+
   ensureMqttConnected();
   if (mqtt.connected()) {
     mqtt.loop();

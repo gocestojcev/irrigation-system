@@ -1,9 +1,65 @@
 # Irrigation System Cloud Integration Implementation Plan
 
-**Last reviewed:** 2026-05-24 (branch `iot`)  
+**Last reviewed:** 2026-05-25 (branch `iot`, merged to `main`)  
 **Monorepo:** `irrigation-system/` with `irrigation-system-aws`, `irrigation-system-esp32`, `irrigation-system-mobile`
 
-## Source Documents
+**Deploy / run:** [DEPLOYMENT.md](../DEPLOYMENT.md)
+
+## Status (2026-05-25)
+
+Dev **end-to-end vertical slice validated** on hardware (`irrigation-dev-001`):
+
+- ESP32 MQTT + shadow sync (reported status/schedules)
+- Mobile Cloud mode: Home, line toggles, schedules, logs
+- Mobile LAN-first default with optional Cloud switch when LAN unreachable
+- Lambda fixes: `LineCount` in status schema, idempotent log ingest keys
+
+### Remaining (post-merge)
+
+| Task | Phase |
+|------|-------|
+| Configure prod Cognito pool in `cdk.json` | Phase 2 / prod |
+| Deploy `IrrigationApiStack-prod` | Phase 2 |
+| CI/CD pipeline (GitHub Actions) | Phase 5 |
+| IAM least-privilege, SNS alarms, dashboards, cert rotation runbook | Phase 5 |
+| Optional: `scripts/smoke-test.ts` | Automation |
+
+## Continue tomorrow (priority order)
+
+**Superseded** — use [DEPLOYMENT.md](../DEPLOYMENT.md) for operational steps. Historical checklist below.
+
+### Dev environment reference
+
+| Item | Value |
+|------|-------|
+| AWS profile | `goce` |
+| Region | `eu-central-1` |
+| API base URL | `https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev` |
+| IoT data endpoint | `a29kh7908vj1ca-ats.iot.eu-central-1.amazonaws.com` |
+| Cognito User Pool | `eu-central-1_i66pYQHZR` |
+| Cognito app client | `irrigation-system-mobile` / `5prg7oeq68ptkeqg3lc6qs50mq` |
+| Test device (Thing) | `irrigation-dev-001` |
+| Test user | `goce.stojcev@gmail.com` (sub `63c4f802-e0c1-7033-af34-0af61a21ef9f`, role **owner**) |
+| Resource tag | `owner=irrigation-system` |
+
+### Vertical slice checklist
+
+Run in **dev** with ESP32 powered, on WiFi, and flashed with current firmware:
+
+- [x] Serial: WiFi connected, `[IOT] Client initialized for thing irrigation-dev-001`, stable MQTT
+- [x] Mobile: Cloud mode → sign in → device ID `irrigation-dev-001` → toggle lines
+- [x] Mobile: LAN mode default; Cloud offered when LAN unreachable
+- [x] API: shadow reported status/schedules; commands applied via delta
+- [x] Shadow heartbeat updates status every ~60s when idle
+- [x] Schedules edit/save (LAN + Cloud)
+- [x] Logs view/clear (Cloud via MQTT ingest + backfill on connect)
+
+**Success metrics:** P50 &lt; 2s, P95 &lt; 5s, zero duplicate execution on retried `commandId`.
+
+### After vertical slice passes
+
+Completed 2026-05-25. Next: prod deploy and Phase 5 ops (see [Status](#status-2026-05-25)).
+
 - [iot-implementation.md](../irrigation-system-esp32/docs/iot-implementation.md)
 - [API_ENDPOINTS.md](../irrigation-system-esp32/API_ENDPOINTS.md)
 - [API_ENDPOINTS.md](../irrigation-system-mobile/docs/API_ENDPOINTS.md)
@@ -13,22 +69,20 @@
 ## Objective
 Enable secure remote irrigation control using AWS IoT + API Gateway + Lambda while preserving the existing mobile data shapes and keeping device-side safety authoritative.
 
-## Validation Summary (2026-05-24)
+## Validation Summary (2026-05-25)
 
-The plan direction is sound. Phase 1 and most of Phase 2 cloud code are implemented. The critical path is now **Phase 3 (ESP32 MQTT)** plus mobile cloud integration — without those, the vertical slice cannot complete.
+Dev E2E validated on `irrigation-dev-001`. See [DEPLOYMENT.md](../DEPLOYMENT.md).
 
-| Finding | Severity | Action |
-|---------|----------|--------|
-| Cloud API uses `/devices/{deviceId}/...` prefix, not bare `/line/1` | Doc drift | Documented below; OpenAPI is canonical |
-| Firmware supports **3 lines** (`LINE_COUNT=3`); cloud MVP validates **lines 1–2 only** | Scope gap | Extend cloud validation before or during Phase 3 |
-| `command-envelope` and handlers include `schemaVersion: "1.0"` | Doc drift | Contracts updated below |
-| Phase 2 listed as future work but handlers are implemented | Status stale | Phase statuses updated |
-| Timeout sweep and command-status API exist early (Phase 5 / extra scope) | Positive drift | Marked done under Phase 2 |
-| `GET /logs` returns empty stub | Expected | Remains Phase 4 |
-| No CDK for IoT Thing + cert provisioning | Gap | Added to Phase 2.5 |
-| Plan mentions `staging`; `cdk.json` has `dev` + `prod` only | Doc drift | Staging deferred; use `dev` |
-| Mobile still calls ESP32 over LAN HTTP | Blocker | Phase 3b (mobile) |
-| End-to-end demo not executed | Blocker | Primary goal on `iot` branch |
+| Finding | Status |
+|---------|--------|
+| Cloud API prefix `/devices/{deviceId}/...` | **Done** |
+| 3-line support (firmware + cloud + schemas) | **Done** |
+| `GET /logs` DynamoDB + IoT ingest | **Done** |
+| Device provisioning script | **Done** |
+| ESP32 MQTT + shadow handler | **Done** (E2E verified) |
+| Mobile Cloud + LAN parity | **Done** |
+| Mobile LAN default + Cloud fallback | **Done** |
+| Prod Cognito pool | **Not done** (`REPLACE_PROD_POOL_ID`) |
 
 ## Infrastructure as Code Standard
 - All AWS infrastructure must be created and managed using AWS CDK.
@@ -181,7 +235,7 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 
 **Acceptance criteria:** met for cloud-side design. Firmware sign-off pending during Phase 3 integration.
 
-### Phase 2: Cloud MVP — **Mostly done**
+### Phase 2: Cloud MVP — **Done (dev)**
 | Deliverable | Status |
 |-------------|--------|
 | CDK app + `IrrigationApiStack` (`dev`, `prod`) | Done |
@@ -189,48 +243,53 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | Lambda handlers (auth, validation, shadow R/W) | Done |
 | `device_user_access_{stage}` DynamoDB table | Done |
 | `device_commands_{stage}` DynamoDB table | Done |
-| IoT Topic Rule → ingest Lambda | Done |
-| Command timeout sweep (EventBridge, 5 min) | Done (early) |
+| `device_logs_{stage}` DynamoDB table | Done |
+| IoT Topic Rules → ingest Lambdas (command-result, log events) | Done |
+| Command timeout sweep (EventBridge, 5 min) | Done |
 | CloudWatch log groups + SNS alarms | Done |
+| Stack tags (`owner=irrigation-system`) | Done |
 | Seed script (`npm run seed:access`) | Done |
 | Fixture runners for local handler tests | Done |
-| `GET /logs` backed by DynamoDB | Not started (Phase 4) |
+| `GET /logs` backed by DynamoDB | Done |
 | Prod Cognito pool configured | Not done (`REPLACE_PROD_POOL_ID`) |
-| Verified deploy + smoke test in `dev` | Not confirmed in repo |
+| Verified deploy + smoke test in `dev` | Deploy done; **E2E smoke test pending** |
 
-**Acceptance criteria:** code paths exist for 202/4xx/auth; needs live `dev` deployment test with a registered IoT Thing.
+**Acceptance criteria:** met in code; live vertical slice with flashed ESP32 still required.
 
-### Phase 2.5: Device Onboarding (new) — **Not started**
-Required before end-to-end demo.
-
+### Phase 2.5: Device Onboarding — **Done (dev)**
 | Deliverable | Status |
 |-------------|--------|
-| IoT Thing creation per device (name = `deviceId`) | Manual / script TBD |
-| Device certificate + IoT policy (connect, shadow, publish command-result) | Manual / script TBD |
-| Provisioning runbook or CDK/custom resource | Not started |
-| `npm run seed:access` run for test user + device | Documented, not executed in repo |
+| IoT Thing creation per device (name = `deviceId`) | Done — `irrigation-dev-001` |
+| Device certificate + IoT policy | Done — `npm run provision:device` |
+| Provisioning script | Done — `scripts/provision-device.ts` |
+| Cognito app client for mobile | Done — `npm run setup:cognito-client` |
+| `npm run seed:access` for test user + device | Done |
+| Formal written runbook | Optional — script output + table above |
 
-### Phase 3: ESP32 AWS IoT Integration — **Not started** (active work on `iot` branch)
+### Phase 3: ESP32 AWS IoT Integration — **Code done, E2E pending**
 | Deliverable | Status |
 |-------------|--------|
-| MQTT/TLS client (Arduino + AWS IoT SDK or equivalent) | Not started |
-| Shadow delta subscription on `state.desired.command` | Not started |
-| Map commands to existing `line` / `schedule` / `logs` logic | Not started |
-| Publish `reported` shadow (`status`, `schedule`, `lastCommand`) | Not started |
-| Publish `command-result` to MQTT topic | Not started |
-| `commandId` idempotency store (NVS) | Not started |
-| Reconnect with backoff (Wi‑Fi + MQTT) | Not started |
+| MQTT/TLS client (PubSubClient + WiFiClientSecure) | Done |
+| Shadow delta subscription on `state.desired.command` | Done |
+| Map commands to `line` / `schedule` / `logs` logic | Done (`device_api.cpp`) |
+| Publish `reported` shadow + heartbeat (60s) | Done |
+| Publish `command-result` to MQTT topic | Done |
+| ISO-8601 timestamps from NTP epoch | Done |
+| `commandId` idempotency store (NVS) | Done |
+| Reconnect with backoff (Wi‑Fi + MQTT) | Done |
+| WiFi via NVS / `secrets/wifi_secrets.h` | Done |
+| **Flash firmware + verify on hardware** | **Not done** |
 
-**Acceptance criteria:** vertical slice works in `dev` — see below.
+**Acceptance criteria:** vertical slice works in `dev` — see [Continue tomorrow](#continue-tomorrow-priority-order).
 
-### Phase 3b: Mobile Cloud Integration — **Not started**
+### Phase 3b: Mobile Cloud Integration — **Done**
 | Deliverable | Status |
 |-------------|--------|
-| Cognito sign-in (hosted UI or app-native) | Not started |
-| Configurable cloud base URL + device selector | Not started |
-| Replace direct `http://<esp32-ip>` calls | Not started |
-| Async write UX (pending → poll command/status) | Not started |
-| Optional LAN fallback to local ESP32 HTTP | Not decided |
+| Cognito sign-in | Done |
+| Configurable cloud base URL + device ID (Settings) | Done |
+| Cloud API client with async command polling | Done |
+| LAN fallback mode | Done |
+| AsyncStorage persistence (IP, URL, device, mode, tokens) | Done |
 
 ### Phase 4: Logs and History — **Mostly done**
 | Deliverable | Status |
@@ -252,19 +311,13 @@ Required before end-to-end demo.
 
 ## Vertical Slice (current priority)
 
-Implement and demo this path in `dev` before expanding scope:
+See [Continue tomorrow](#continue-tomorrow-priority-order) for the step-by-step checklist.
 
-1. Register one IoT Thing + flash firmware with cert (Phase 2.5).
-2. Seed `device_user_access_dev` for a Cognito test user (Phase 2.5).
-3. `POST /devices/{deviceId}/line/1` → `202` + `commandId`.
-4. ESP32 receives shadow delta, turns line 1 on, publishes result.
-5. `GET /devices/{deviceId}/commands/{commandId}` → `applied`.
-6. `GET /devices/{deviceId}/status` → `Line1.Value == "on"`.
-
-**Success metrics:**
-- P50 command latency < 2s
-- P95 command latency < 5s
-- 0 duplicate execution for retried requests (same `commandId`)
+1. ~~Register one IoT Thing + generate cert (Phase 2.5).~~ Done — `irrigation-dev-001`.
+2. ~~Seed `device_user_access_dev` for Cognito test user.~~ Done.
+3. **Flash ESP32** with `secrets/iot_secrets.h` + `secrets/wifi_secrets.h`.
+4. **Redeploy dev** if not done since commit `917c549`.
+5. Run vertical slice: `POST …/line/1` → ESP executes → `GET …/commands/{id}` = applied → `GET …/status` updated.
 
 ## Repository Tasks
 
@@ -273,39 +326,52 @@ Implement and demo this path in `dev` before expanding scope:
 |------|--------|
 | CDK structure (`infra/`, `lambdas/`, `schemas/`, `openapi/`) | Done |
 | Environment configs (`dev`, `prod` in `cdk.json`) | Done |
-| Extend line validation to 3 lines (match firmware) | Todo |
-| Device provisioning script / CDK | Todo |
+| Extend line validation to 3 lines | Done |
+| Device provisioning script | Done |
+| Cognito mobile client setup script | Done |
+| Log ingest + `GET /logs` + cloud purge on `logs.clear` | Done |
+| Smoke test script | **Todo** |
 | CI/CD deploy pipeline | Todo |
+| Prod Cognito pool + deploy | Todo |
 
 ### `irrigation-system-esp32/`
 | Task | Status |
 |------|--------|
-| AWS IoT MQTT client module | Todo |
-| Shadow delta handler + command parser | Todo |
-| `commandId` dedupe in NVS | Todo |
-| Reported state + command-result publish | Todo |
+| AWS IoT MQTT client module (`iot_client.cpp`) | Done |
+| Shadow delta handler + command parser | Done |
+| `commandId` dedupe in NVS | Done |
+| Reported state + command-result publish | Done |
+| Shadow heartbeat + ISO timestamps | Done |
+| WiFi secrets pattern | Done |
+| **Hardware E2E validation** | **Todo** |
 
 ### `irrigation-system-mobile/`
 | Task | Status |
 |------|--------|
-| Cognito auth flow | Todo |
-| Cloud API client (replace axios → ESP32 IP) | Todo |
-| Command pending / polling UX | Todo |
+| Cognito auth flow | Done |
+| Cloud API client + command polling | Done |
+| Cloud/LAN mode + Settings (URL, device, IP) | Done |
+| **E2E test on device (cloud mode)** | **Done** |
 
 ## Risks and Mitigations
 - **Device offline during command:** return `202` + track `pending`; timeout sweep marks `timeout` after 120s.
 - **Clock drift on device:** NTP already used in firmware; include server timestamps in command envelope.
 - **Duplicate writes due to retries:** idempotency by `commandId` on device (NVS) and cloud (DynamoDB).
 - **Schema drift:** versioned schemas in `irrigation-system-aws/schemas/`; firmware imports same shapes during Phase 3.
-- **Line count mismatch:** extend cloud to 3 lines before user-facing rollout.
+- **Line count mismatch:** resolved — cloud validates lines 1–3.
 
-## Next Actions (`iot` branch)
-1. Add ESP32 MQTT/TLS connect + shadow delta subscription scaffold.
-2. Implement command parser for `line.set` mapped to existing relay control.
-3. Publish `command-result` and update `reported.status` + `lastCommand`.
-4. Create device provisioning runbook (Thing, cert, policy, seed access).
-5. Deploy `dev` stack and run vertical slice smoke test.
-6. Extend cloud line validation from 2 → 3 lines to match firmware.
+## Progress snapshot
+
+```
+Phase 1   ████████████████████  100%
+Phase 2   ██████████████████░░   90%  (dev done; prod pool pending)
+Phase 2.5 ████████████████████  100%  (dev device provisioned)
+Phase 3   ████████████████████  100%  (E2E verified)
+Phase 3b  ████████████████████  100%  (E2E verified)
+Phase 4   ████████████████████  100%  (logs + clear verified)
+Phase 5   ████░░░░░░░░░░░░░░░░   20%
+E2E demo  ████████████████████  100%
+```
 
 ## Non-Goals (initial rollout)
 - Direct internet exposure of ESP32 HTTP API.

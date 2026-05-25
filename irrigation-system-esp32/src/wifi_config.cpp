@@ -1,6 +1,7 @@
 #include "wifi_config.h"
 
 #include <WiFi.h>
+#include <esp_netif.h>
 
 #include "globals.h"
 
@@ -17,6 +18,25 @@ bool hasCompileTimeWifiCredentials() {
   return strlen(WIFI_SSID) > 0 && strlen(WIFI_PASSWORD) > 0;
 }
 
+void applyReliableDns() {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  if (netif == nullptr) {
+    Serial.println("[WIFI] Could not override DNS (netif missing)");
+    return;
+  }
+
+  esp_netif_dns_info_t dns;
+  dns.ip.type = ESP_IPADDR_TYPE_V4;
+
+  IPAddress primary(8, 8, 8, 8);
+  dns.ip.u_addr.ip4.addr = static_cast<uint32_t>(primary);
+  esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns);
+
+  IPAddress secondary(1, 1, 1, 1);
+  dns.ip.u_addr.ip4.addr = static_cast<uint32_t>(secondary);
+  esp_netif_set_dns_info(netif, ESP_NETIF_DNS_BACKUP, &dns);
+}
+
 }  // namespace
 
 void connectWifi() {
@@ -26,6 +46,9 @@ void connectWifi() {
     Serial.println("[WIFI] No credentials configured. Set NVS or secrets/wifi_secrets.h");
     return;
   }
+
+  // Prefer public DNS; router DNS (192.168.100.1) timed out in testing.
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, IPAddress(8, 8, 8, 8), IPAddress(1, 1, 1, 1));
 
   WiFi.begin(ssid.c_str(), password.c_str());
   Serial.print("Connecting to WiFi (");
@@ -43,8 +66,13 @@ void connectWifi() {
   }
   Serial.println();
   Serial.println("WiFi connected");
+  applyReliableDns();
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+  Serial.print("DNS: ");
+  Serial.print(WiFi.dnsIP(0));
+  Serial.print(", ");
+  Serial.println(WiFi.dnsIP(1));
 }
 
 bool saveWifiCredentials(const char *ssid, const char *password) {

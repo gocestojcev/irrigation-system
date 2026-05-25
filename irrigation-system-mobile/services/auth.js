@@ -5,6 +5,8 @@ import {
 } from 'amazon-cognito-identity-js';
 import 'react-native-get-random-values';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { irrigationConfig } from './config';
 import { clearAuthTokens, getAuthTokens, setAuthTokens, setCloudUsername } from './storage';
 
@@ -15,9 +17,52 @@ function getUserPool() {
     userPool = new CognitoUserPool({
       UserPoolId: irrigationConfig.userPoolId,
       ClientId: irrigationConfig.userPoolClientId,
+      Storage: AsyncStorage,
     });
   }
   return userPool;
+}
+
+async function resolveCognitoUser() {
+  const pool = getUserPool();
+  const current = pool.getCurrentUser();
+  if (current) return current;
+
+  const username = await getCloudUsername();
+  if (!username) return null;
+
+  return new CognitoUser({ Username: username, Pool: pool });
+}
+
+async function refreshStoredSession() {
+  const user = await resolveCognitoUser();
+  if (!user) return null;
+
+  try {
+    const session = await new Promise((resolve, reject) => {
+      user.getSession((err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+
+    if (!session?.isValid()) return null;
+    return storeSession(session);
+  } catch {
+    await clearAuthTokens();
+    return null;
+  }
+}
+
+async function getCachedSessionToken(tokenKey) {
+  const cached = await getAuthTokens();
+  const token = cached?.[tokenKey];
+  if (token && cached.expiresAt > Date.now() + 30_000) {
+    return token;
+  }
+
+  const tokens = await refreshStoredSession();
+  return tokens?.[tokenKey] ?? null;
 }
 
 function storeSession(session) {
@@ -58,28 +103,15 @@ export async function signOut() {
 }
 
 export async function getAccessToken() {
-  const cached = await getAuthTokens();
-  if (cached?.accessToken && cached.expiresAt > Date.now() + 30_000) {
-    return cached.accessToken;
-  }
+  return getCachedSessionToken('accessToken');
+}
 
-  const pool = getUserPool();
-  const current = pool.getCurrentUser();
-  if (!current) return null;
-
-  const session = await new Promise((resolve, reject) => {
-    current.getSession((err, result) => {
-      if (err) reject(err);
-      else resolve(result);
-    });
-  });
-
-  if (!session?.isValid()) return null;
-  const tokens = await storeSession(session);
-  return tokens.accessToken;
+/** API Gateway Cognito authorizer expects the ID token, not the access token. */
+export async function getIdToken() {
+  return getCachedSessionToken('idToken');
 }
 
 export async function isSignedIn() {
-  const token = await getAccessToken();
+  const token = await getIdToken();
   return Boolean(token);
 }

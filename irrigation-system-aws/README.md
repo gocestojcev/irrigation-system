@@ -2,8 +2,9 @@
 
 AWS CDK project for the irrigation cloud backend.
 
-## Included (Phase 2 scaffold)
-- API Gateway REST API routes for device status, line, schedule, logs, and command status.
+**Deployment guide:** [../DEPLOYMENT.md](../DEPLOYMENT.md)
+
+## Included
 - Lambda handlers (TypeScript) with auth/access validation placeholders.
 - DynamoDB `device_user_access` table.
 - DynamoDB `device_commands` table for persistent `commandId` status tracking.

@@ -7,8 +7,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const LOG_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 export const putLogEvent = async (tableName: string, payload: LogEventIngestBody): Promise<void> => {
-  const nowEpoch = Math.floor(Date.now() / 1000);
-  const sortKey = `LOG#${String(payload.Epoch).padStart(10, '0')}#${payload.Line}#${payload.Event}#${nowEpoch}`;
+  const sortKey = `LOG#${String(payload.Epoch).padStart(10, '0')}#${payload.Line}#${payload.Event}`;
 
   await ddb.send(
     new PutCommand({

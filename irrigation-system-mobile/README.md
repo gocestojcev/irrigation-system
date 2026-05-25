@@ -1,14 +1,17 @@
 # ESP32-Mobile
 
-React Native Expo app for controlling ESP32 irrigation relay lines over HTTP.
+React Native Expo app for controlling ESP32 irrigation relay lines over **LAN (default)** or **AWS Cloud**.
+
+**Deployment:** [../DEPLOYMENT.md](../DEPLOYMENT.md) · **Tunnel help:** [docs/EXPO_TUNNEL.md](docs/EXPO_TUNNEL.md)
 
 ## Features
 
 - Relay control for every line reported by the ESP32 (`LineCount` in `/status`)
 - Named lines with icons (Lawn, Tomatoes, Cucumbers)
 - Manual control, schedules, and activity logs
-- Configurable ESP32 server IP and network scan
-- Real-time state updates (green = ON, gray = OFF)
+- **LAN-first** — Cloud mode when LAN unreachable (user confirms switch)
+- Configurable ESP32 server IP and network scan (LAN)
+- Cognito sign-in and cloud API (Cloud mode)
 
 ---
 
@@ -147,14 +150,15 @@ npx eas-cli build --profile preview --platform android
 ## Using the app with your ESP32
 
 1. Power on the ESP32 and connect it to your home Wi‑Fi
-2. Put your **phone on the same Wi‑Fi**
-3. Open the app → **Settings**
+2. Put your **phone on the same Wi‑Fi** (for LAN mode)
+3. Open the app → **Settings** — mode defaults to **LAN**
 4. Enter the ESP32 IP (default: `192.168.100.161`) or use **Scan Network**
-5. **Home** — tap a line to turn it on/off manually
-6. **Schedules** — configure watering windows
-7. **Logs** — view recent activity
+5. If LAN fails, tap **Switch to Cloud** in the offline banner (requires sign-in)
+6. **Home** — tap a line to turn it on/off manually
+7. **Schedules** — configure watering windows
+8. **Logs** — view recent activity
 
-The app talks to the ESP32 over plain HTTP (`http://<ip>/...`). HTTP to local IPs only works on the same network; tunnel mode only helps load the app in Expo Go, not reach the ESP32 from another network.
+LAN uses plain HTTP (`http://<ip>/…`). Cloud uses the AWS API and IoT shadow (works off-LAN).
 
 ---
 

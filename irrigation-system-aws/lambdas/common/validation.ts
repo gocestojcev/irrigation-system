@@ -46,6 +46,7 @@ export type StatusBody = {
   Line1: StatusLineBody;
   Line2: StatusLineBody;
   Line3: StatusLineBody;
+  LineCount?: number;
 };
 
 export type ScheduleBody = {
@@ -142,6 +143,7 @@ const statusSchema: JSONSchemaType<StatusBody> = {
     Line1: statusLineSchema,
     Line2: statusLineSchema,
     Line3: statusLineSchema,
+    LineCount: { type: 'integer', minimum: 1, maximum: 32, nullable: true },
   },
 };
 
