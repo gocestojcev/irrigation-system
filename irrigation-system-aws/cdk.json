@@ -6,14 +6,12 @@
       "dev": {
         "account": "675316576819",
         "region": "eu-central-1",
-        "stage": "dev",
-        "userPoolId": "eu-central-1_i66pYQHZR"
+        "stage": "dev"
       },
       "prod": {
         "account": "675316576819",
         "region": "eu-central-1",
-        "stage": "prod",
-        "userPoolId": "eu-central-1_REPLACE_PROD_POOL_ID"
+        "stage": "prod"
       }
     }
   }

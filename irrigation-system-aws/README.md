@@ -23,14 +23,24 @@ AWS CDK project for the irrigation cloud backend.
 ## Configure account/region
 Update [cdk.json](cdk.json) `context.environments` values for your AWS account/regions.
 
-## Configure Cognito authorizer
-For each environment in [cdk.json](cdk.json), set `userPoolId` to the target Cognito User Pool ID.
+## Cognito (created by CDK)
 
-Example:
-- `eu-central-1_abc123Dev`
-- `eu-central-1_xyz789Prod`
+Each stack creates its own Cognito User Pool and mobile app client (`irrigation-system-mobile`):
 
-All API methods are protected with a Cognito User Pool authorizer.
+- Sign-in with **email** + password (SRP and USER_PASSWORD auth flows)
+- Self sign-up is **disabled** — create users with `admin-create-user` (see [DEPLOYMENT.md](../DEPLOYMENT.md))
+
+After deploy, copy stack outputs into the mobile app `app.json` → `extra.irrigation`:
+
+```powershell
+aws cloudformation describe-stacks --stack-name IrrigationApiStack-dev --profile goce --region eu-central-1 --query "Stacks[0].Outputs"
+```
+
+Outputs: `UserPoolId`, `UserPoolClientId`, `ApiUrl`.
+
+The legacy script `npm run setup:cognito-client` is only needed if you import an external pool instead of using CDK-managed Cognito.
+
+All API methods are protected with the stack's Cognito User Pool authorizer.
 
 ## Seed access mapping (pre-deploy test prep)
 Use the helper script to create `user -> device` access records:

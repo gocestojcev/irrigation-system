@@ -4,8 +4,8 @@ const extra = Constants.expoConfig?.extra?.irrigation ?? {};
 
 export const irrigationConfig = {
   region: extra.region ?? 'eu-central-1',
-  userPoolId: extra.userPoolId ?? 'eu-central-1_i66pYQHZR',
-  userPoolClientId: extra.userPoolClientId ?? '5prg7oeq68ptkeqg3lc6qs50mq',
+  userPoolId: extra.userPoolId ?? 'eu-central-1_9cK1kXGiV',
+  userPoolClientId: extra.userPoolClientId ?? '5qjrjthlpqkn1b7f22p1p5rfjs',
   defaultCloudBaseUrl: extra.cloudBaseUrl ?? 'https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev',
   defaultDeviceId: extra.defaultDeviceId ?? 'irrigation-dev-001',
   defaultServerIp: extra.defaultServerIp ?? '192.168.100.161',

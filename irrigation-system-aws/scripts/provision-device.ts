@@ -20,7 +20,7 @@ type CliArgs = {
   esp32SecretsDir: string;
 };
 
-const OWNER_TAG = { Key: 'owner', Value: 'irrigation-system' };
+const APP_TAG = { Key: 'app', Value: 'irrigation-system' };
 
 const readArg = (name: string): string | undefined => {
   const prefix = `--${name}=`;
@@ -121,7 +121,7 @@ const ensurePolicy = async (
     new CreatePolicyCommand({
       policyName,
       policyDocument: buildPolicyDocument(region, accountId),
-      tags: [OWNER_TAG, { Key: 'stage', Value: stage }],
+      tags: [APP_TAG, { Key: 'stage', Value: stage }],
     }),
   );
 
@@ -138,7 +138,7 @@ const ensureThing = async (iot: IoTClient, deviceId: string, stage: string): Pro
       thingName: deviceId,
       attributePayload: {
         attributes: {
-          owner: 'irrigation-system',
+          app: 'irrigation-system',
           stage,
         },
       },
@@ -190,7 +190,7 @@ const main = async (): Promise<void> => {
         certificateId: cert.certificateId,
         certificateArn: cert.certificateArn,
         policyName,
-        tags: { owner: 'irrigation-system', stage: args.stage },
+        tags: { app: 'irrigation-system', stage: args.stage },
       },
       null,
       2,

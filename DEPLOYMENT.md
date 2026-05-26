@@ -28,13 +28,25 @@ npm install
 npm run deploy:dev
 ```
 
-Uses AWS profile **`goce`** (see `package.json` script). Outputs the API URL, e.g.:
+Uses AWS profile **`goce`** (see `package.json` script). Stack outputs include **`UserPoolId`**, **`UserPoolClientId`**, and **`ApiUrl`**.
 
-`https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev`
+### 1.2 Cognito (created by CDK)
 
-### 1.2 Configure Cognito
+Each environment stack creates its own User Pool (`irrigation-users-{stage}`) and app client (`irrigation-system-mobile`). Self sign-up is disabled.
 
-Set `userPoolId` per environment in `cdk.json` → `context.environments`. The mobile app reads pool/client IDs from `app.json` → `extra.irrigation` (with fallbacks in `services/config.js`).
+After deploy, copy outputs into `irrigation-system-mobile/app.json` → `extra.irrigation`:
+
+```powershell
+aws cloudformation describe-stacks --stack-name IrrigationApiStack-dev --profile goce --region eu-central-1 --query "Stacks[0].Outputs"
+```
+
+Create a user (temporary password; user sets new password on first sign-in):
+
+```powershell
+aws cognito-idp admin-create-user --user-pool-id <UserPoolId> --username goce.stojcev@gmail.com --user-attributes Name=email,Value=goce.stojcev@gmail.com Name=email_verified,Value=true --temporary-password "ChangeMe123!" --profile goce --region eu-central-1
+```
+
+Get the user's **`sub`** for seed-access (from AWS Console → Cognito → user, or `admin-get-user`).
 
 ### 1.3 Grant user access to a device
 
@@ -62,10 +74,11 @@ npm run deploy:dev
 
 ### 1.6 Prod (later)
 
-1. Set prod Cognito pool in `cdk.json`
-2. `npm run deploy:prod`
+```powershell
+npm run deploy:prod
+```
 
-See [irrigation-system-aws/IMPLEMENTATION_PLAN.md](irrigation-system-aws/IMPLEMENTATION_PLAN.md) for Phase 5 ops items (CI/CD, alarms, dashboards).
+Copy prod stack outputs to a prod mobile build config (separate `app.json` values or EAS env). See [irrigation-system-aws/IMPLEMENTATION_PLAN.md](irrigation-system-aws/IMPLEMENTATION_PLAN.md) for Phase 5 ops items.
 
 ---
 
@@ -206,9 +219,9 @@ Run with ESP32 powered, flashed, and dev stack deployed.
 |------|-------|
 | AWS profile | `goce` |
 | Region | `eu-central-1` |
-| API base URL | `https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev` |
-| Cognito User Pool | `eu-central-1_i66pYQHZR` |
-| Cognito app client | `irrigation-system-mobile` |
+| API base URL | Stack output `ApiUrl` (or Settings in app) |
+| Cognito User Pool | Stack output `UserPoolId` → copy to `app.json` |
+| Cognito app client | Stack output `UserPoolClientId` → copy to `app.json` |
 | Test Thing | `irrigation-dev-001` |
 | Default LAN IP (app) | `192.168.100.161` (change in Settings) |
 

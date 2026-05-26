@@ -5,7 +5,6 @@ type EnvConfig = {
   account: string;
   region: string;
   stage: string;
-  userPoolId: string;
 };
 
 const app = new cdk.App();
@@ -19,6 +18,5 @@ for (const [name, cfg] of Object.entries(environments)) {
   new IrrigationApiStack(app, `IrrigationApiStack-${name}`, {
     env: { account: cfg.account, region: cfg.region },
     stage: cfg.stage,
-    userPoolId: cfg.userPoolId,
   });
 }

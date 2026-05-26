@@ -18,7 +18,7 @@ Dev **end-to-end vertical slice validated** on hardware (`irrigation-dev-001`):
 
 | Task | Phase |
 |------|-------|
-| Configure prod Cognito pool in `cdk.json` | Phase 2 / prod |
+| Configure prod Cognito pool in `cdk.json` | ~~Phase 2 / prod~~ **Done** — CDK creates pool per stack |
 | Deploy `IrrigationApiStack-prod` | Phase 2 |
 | CI/CD pipeline (GitHub Actions) | Phase 5 |
 | IAM least-privilege, SNS alarms, dashboards, cert rotation runbook | Phase 5 |
@@ -32,11 +32,11 @@ Dev **end-to-end vertical slice validated** on hardware (`irrigation-dev-001`):
 | Region | `eu-central-1` |
 | API base URL | `https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev` |
 | IoT data endpoint | `a29kh7908vj1ca-ats.iot.eu-central-1.amazonaws.com` |
-| Cognito User Pool | `eu-central-1_i66pYQHZR` |
-| Cognito app client | `irrigation-system-mobile` / `5prg7oeq68ptkeqg3lc6qs50mq` |
+| Cognito User Pool | Created by CDK (`irrigation-users-{stage}`) — see stack output `UserPoolId` |
+| Cognito app client | Created by CDK (`irrigation-system-mobile`) — see stack output `UserPoolClientId` |
 | Test device (Thing) | `irrigation-dev-001` |
-| Test user | `goce.stojcev@gmail.com` (sub `63c4f802-e0c1-7033-af34-0af61a21ef9f`, role **owner**) |
-| Resource tag | `owner=irrigation-system` |
+| Test user | `goce.stojcev@gmail.com` (sub `53144822-7071-70a4-05b6-92a1ce892f91`, role **owner**) |
+| Resource tag | `app=irrigation-system` |
 
 ### Related docs
 
@@ -62,7 +62,7 @@ Dev E2E validated on `irrigation-dev-001`. See [DEPLOYMENT.md](../DEPLOYMENT.md)
 | ESP32 MQTT + shadow handler | **Done** (E2E verified) |
 | Mobile Cloud + LAN parity | **Done** |
 | Mobile LAN default + Cloud fallback | **Done** |
-| Prod Cognito pool | **Not done** (`REPLACE_PROD_POOL_ID`) |
+| Prod Cognito pool | **Done** — separate pool per stack (dev/prod) |
 
 ## Infrastructure as Code Standard
 - All AWS infrastructure must be created and managed using AWS CDK.
@@ -227,11 +227,11 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | IoT Topic Rules → ingest Lambdas (command-result, log events) | Done |
 | Command timeout sweep (EventBridge, 5 min) | Done |
 | CloudWatch log groups + SNS alarms | Done |
-| Stack tags (`owner=irrigation-system`) | Done |
+| Stack tags (`app=irrigation-system`) | Done |
 | Seed script (`npm run seed:access`) | Done |
 | Fixture runners for local handler tests | Done |
 | `GET /logs` backed by DynamoDB | Done |
-| Prod Cognito pool configured | Not done (`REPLACE_PROD_POOL_ID`) |
+| Prod Cognito pool configured | **Done** — CDK-managed per environment |
 | Verified deploy + smoke test in `dev` | **Done** (E2E verified 2026-05-25) |
 
 **Acceptance criteria:** met in dev on `irrigation-dev-001`.
@@ -242,7 +242,7 @@ Cloud assigns `commandId` on write; the mobile app never sends one. Clients poll
 | IoT Thing creation per device (name = `deviceId`) | Done — `irrigation-dev-001` |
 | Device certificate + IoT policy | Done — `npm run provision:device` |
 | Provisioning script | Done — `scripts/provision-device.ts` |
-| Cognito app client for mobile | Done — `npm run setup:cognito-client` |
+| Cognito app client for mobile | Done — CDK `MobileAppClient` |
 | `npm run seed:access` for test user + device | Done |
 | Formal written runbook | Optional — script output + table above |
 
@@ -306,7 +306,7 @@ Validated on `irrigation-dev-001`: cloud line toggles, schedules, logs, LAN-firs
 | Log ingest + `GET /logs` + cloud purge on `logs.clear` | Done |
 | Smoke test script | **Todo** |
 | CI/CD deploy pipeline | Todo |
-| Prod Cognito pool + deploy | Todo |
+| Prod Cognito pool + deploy | Todo (deploy prod stack) |
 
 ### `irrigation-system-esp32/`
 | Task | Status |

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import {
+  CfnOutput,
   Duration,
   RemovalPolicy,
   Stack,
@@ -23,7 +24,6 @@ import { Construct } from 'constructs';
 
 export interface IrrigationApiStackProps extends StackProps {
   stage: string;
-  userPoolId: string;
 }
 
 export class IrrigationApiStack extends Stack {
@@ -31,7 +31,7 @@ export class IrrigationApiStack extends Stack {
     super(scope, id, props);
 
     Tags.of(this).add('name', 'irrigation');
-    Tags.of(this).add('owner', 'irrigation-system');
+    Tags.of(this).add('app', 'irrigation-system');
     Tags.of(this).add('stage', props.stage);
 
     const accessTable = new dynamodb.Table(this, 'DeviceUserAccessTable', {
@@ -142,7 +142,31 @@ export class IrrigationApiStack extends Stack {
     commandsTable.grantWriteData(ingestCommandResultFn);
     commandsTable.grantWriteData(timeoutCommandsFn);
 
-    const importedUserPool = cognito.UserPool.fromUserPoolId(this, 'ImportedUserPool', props.userPoolId);
+    const userPool = new cognito.UserPool(this, 'UserPool', {
+      userPoolName: `irrigation-users-${props.stage}`,
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      passwordPolicy: {
+        minLength: 8,
+        requireLowercase: true,
+        requireUppercase: true,
+        requireDigits: true,
+        requireSymbols: false,
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      removalPolicy: props.stage === 'prod' ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    const userPoolClient = userPool.addClient('MobileAppClient', {
+      userPoolClientName: 'irrigation-system-mobile',
+      generateSecret: false,
+      authFlows: {
+        userPassword: true,
+        userSrp: true,
+      },
+      preventUserExistenceErrors: true,
+    });
 
     const api = new apigw.RestApi(this, 'IrrigationApi', {
       restApiName: `irrigation-api-${props.stage}`,
@@ -160,7 +184,7 @@ export class IrrigationApiStack extends Stack {
     });
 
     const cognitoAuthorizer = new apigw.CognitoUserPoolsAuthorizer(this, 'ApiCognitoAuthorizer', {
-      cognitoUserPools: [importedUserPool],
+      cognitoUserPools: [userPool],
       authorizerName: `irrigation-cognito-authorizer-${props.stage}`,
       resultsCacheTtl: Duration.minutes(5),
     });
@@ -268,5 +292,23 @@ export class IrrigationApiStack extends Stack {
     });
 
     lambdaErrorsAlarm.addAlarmAction(new cwActions.SnsAction(alarmTopic));
+
+    new CfnOutput(this, 'UserPoolId', {
+      value: userPool.userPoolId,
+      description: 'Cognito User Pool ID for mobile sign-in',
+      exportName: `irrigation-${props.stage}-user-pool-id`,
+    });
+
+    new CfnOutput(this, 'UserPoolClientId', {
+      value: userPoolClient.userPoolClientId,
+      description: 'Cognito app client ID (irrigation-system-mobile)',
+      exportName: `irrigation-${props.stage}-user-pool-client-id`,
+    });
+
+    new CfnOutput(this, 'ApiUrl', {
+      value: api.url,
+      description: 'API Gateway base URL',
+      exportName: `irrigation-${props.stage}-api-url`,
+    });
   }
 }

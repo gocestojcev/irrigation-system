@@ -1,3 +1,7 @@
+/**
+ * Legacy helper for externally managed Cognito pools.
+ * CDK now creates the User Pool and app client — use stack outputs instead.
+ */
 import {
   CognitoIdentityProviderClient,
   CreateUserPoolClientCommand,

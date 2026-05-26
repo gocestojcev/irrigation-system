@@ -26,8 +26,8 @@
       },
       "irrigation": {
         "region": "eu-central-1",
-        "userPoolId": "eu-central-1_i66pYQHZR",
-        "userPoolClientId": "5prg7oeq68ptkeqg3lc6qs50mq",
+        "userPoolId": "eu-central-1_9cK1kXGiV",
+        "userPoolClientId": "5qjrjthlpqkn1b7f22p1p5rfjs",
         "cloudBaseUrl": "https://fegc56wnv1.execute-api.eu-central-1.amazonaws.com/dev",
         "defaultDeviceId": "irrigation-dev-001",
         "defaultServerIp": "192.168.100.161"
